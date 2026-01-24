@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Showlist Austin",
+    "slug": "showlist-austin",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.showlist.austin",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app uses location to show nearby music venues.",
+        "NSCalendarsUsageDescription": "This app uses your calendar to add events."
+      }
+    },
+    "android": {
+      "package": "com.showlist.austin",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR"
+      ]
+    },
+    "web": {},
+    "plugins": [
+      "expo-calendar"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "db4d95d7-4690-427a-a703-d31cfff4883a"
+      }
+    }
+  }
+}
