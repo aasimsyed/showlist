@@ -16,12 +16,10 @@ export function useSwipeGesture({
 }: UseSwipeGestureProps) {
   const panGesture = Gesture.Pan()
     .enabled(enabled)
-    // Only activate when there's very clear horizontal intent
-    // Require at least 50px horizontal movement before activating
-    .activeOffsetX([-50, 50])
-    // Fail immediately if vertical movement exceeds 20px
-    // This prioritizes vertical scrolling - fail early for vertical gestures
-    .failOffsetY([-20, 20])
+    // Activate sooner (36px) so we register before vertical drift accumulates
+    .activeOffsetX([-36, 36])
+    // Allow more vertical drift (45px) before failing; avoids failing on diagonal swipes
+    .failOffsetY([-45, 45])
     .minPointers(1)
     .maxPointers(1)
     .onEnd((event) => {
@@ -29,40 +27,32 @@ export function useSwipeGesture({
 
       const { translationX, translationY, velocityX, velocityY } = event;
 
-      // Only trigger if horizontal movement is significantly greater than vertical
-      // This ensures we don't interfere with vertical scrolling
       const absX = Math.abs(translationX);
       const absY = Math.abs(translationY);
       const absVelX = Math.abs(velocityX);
       const absVelY = Math.abs(velocityY || 0);
-      
-      // Strict check: if there's any significant vertical movement, require horizontal to be at least 3x
-      // This prevents interfering with vertical scrolling, especially at list edges
-      if (absY > 15 && absX < absY * 3) {
-        return; // Likely a vertical scroll, ignore
+
+      // Ignore only when vertical is clearly dominant (horizontal < vertical)
+      if (absY > 20 && absX < absY) {
+        return;
       }
-      
-      // Also check velocity - if vertical velocity is significant, ignore
-      if (absVelY > 200 && absVelX < absVelY * 2) {
-        return; // Likely a vertical scroll gesture, ignore
+      if (absVelY > 250 && absVelX < absVelY) {
+        return;
       }
 
-      // Check if swipe meets threshold
-      // velocityX is in pixels per second, so multiply threshold by 1000
       const minSwipeDistance = SWIPE_THRESHOLD;
       const minSwipeVelocity = SWIPE_VELOCITY_THRESHOLD * 1000;
 
-      // Only trigger if we have clear horizontal intent
-      // Require horizontal movement/velocity to be significantly greater than vertical
-      if (
-        (absX > minSwipeDistance && absX > absY * 2) ||
-        (absVelX > minSwipeVelocity && absVelX > absVelY * 2)
-      ) {
+      // Trigger when horizontal is dominant (>= 1.3x vertical) and meets distance/velocity
+      const horizontalDominant = absX >= absY * 1.3 || absVelX >= (absVelY || 1) * 1.3;
+      const meetsThreshold =
+        (absX > minSwipeDistance && horizontalDominant) ||
+        (absVelX > minSwipeVelocity && horizontalDominant);
+
+      if (meetsThreshold) {
         if (translationX > 0 || velocityX > 0) {
-          // Swipe right - previous day
           runOnJS(onSwipeRight)();
         } else {
-          // Swipe left - next day
           runOnJS(onSwipeLeft)();
         }
       }

@@ -8,7 +8,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRecommendations } from '../hooks/useRecommendations';
+import { useRecommendationsContext } from '../context/RecommendationsContext';
 import { useEvents } from '../hooks/useEvents';
 import { ShowCard } from '../components/ShowCard';
 import { useTheme } from '../context/ThemeContext';
@@ -17,7 +17,7 @@ import { useFavorites } from '../context/FavoritesContext';
 
 export const ForYouScreen: React.FC = () => {
   const { colors } = useTheme();
-  const { recommendations, loading } = useRecommendations(50);
+  const { recommendations, loading } = useRecommendationsContext();
   const { refresh, isRefreshing } = useEvents();
   const { favorites } = useFavorites();
   const styles = createStyles(colors);
@@ -47,7 +47,7 @@ export const ForYouScreen: React.FC = () => {
       );
     }
 
-    if (favorites.length < 3) {
+    if (favorites.length < 3 && recommendations.length === 0) {
       return (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>Start building your recommendations</Text>
@@ -58,14 +58,18 @@ export const ForYouScreen: React.FC = () => {
       );
     }
 
-    return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>No recommendations right now</Text>
-        <Text style={styles.emptySubtext}>
-          Check back later for new events that match your preferences
-        </Text>
-      </View>
-    );
+    if (recommendations.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No recommendations right now</Text>
+          <Text style={styles.emptySubtext}>
+            Check back later for new events that match your preferences
+          </Text>
+        </View>
+      );
+    }
+
+    return null;
   };
 
   return (

@@ -30,9 +30,9 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "YOUR_APPLE_ID@example.com",
-        "ascAppId": "YOUR_APP_STORE_CONNECT_APP_ID",
-        "appleTeamId": "YOUR_TEAM_ID"
+        "appleId": "aasim.ss@gmail.com",
+        "ascAppId": "6758255492",
+        "appleTeamId": "K5A25879TB"
       }
     }
   }

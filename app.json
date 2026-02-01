@@ -5,13 +5,14 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.showlist.austin",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app uses location to show nearby music venues.",
         "NSCalendarsUsageDescription": "This app uses your calendar to add events.",
@@ -28,7 +29,8 @@
     },
     "web": {},
     "plugins": [
-      "expo-calendar"
+      "expo-calendar",
+      "expo-asset"
     ],
     "extra": {
       "eas": {

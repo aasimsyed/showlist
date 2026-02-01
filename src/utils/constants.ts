@@ -23,8 +23,8 @@ export const COLORS = {
 };
 
 // Gesture Constants
-export const SWIPE_THRESHOLD = 50; // Minimum swipe distance in pixels
-export const SWIPE_VELOCITY_THRESHOLD = 0.3;
+export const SWIPE_THRESHOLD = 36; // Minimum swipe distance in pixels (reduced for reliability)
+export const SWIPE_VELOCITY_THRESHOLD = 0.25;
 
 // Search Configuration
 export const SEARCH_DEBOUNCE_MS = 300;

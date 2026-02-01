@@ -10,6 +10,7 @@ build/
 # Environment variables
 .env
 .env.local
+.env.build
 
 # IDE
 .vscode/
@@ -32,3 +33,9 @@ Thumbs.db
 # Cloudflare
 .wrangler/
 wrangler.toml.local
+
+# Snyk Security Extension - AI Rules (auto-generated)
+.cursor/rules/snyk_rules.mdc
+
+# Scratch/working docs
+.scratch/

@@ -1,9 +1,15 @@
-import { useMemo, useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { InteractionManager } from 'react-native';
 import { useEvents } from './useEvents';
 import { useFavorites } from '../context/FavoritesContext';
 import { getMLRecommendations, MLRecommendationScore, convertProfileToFeatures, convertShowToFeatures } from '../utils/mlRecommendationEngine';
 import { updateUserProfile, getUserProfile } from '../utils/userBehaviorTracker';
 import { mlService } from '../services/mlService';
+import {
+  getCachedRecommendations,
+  saveRecommendations,
+  filterOutPastRecommendations,
+} from '../utils/recommendationsCache';
 
 export function useRecommendations(limit: number = 10) {
   const { events } = useEvents();
@@ -24,57 +30,59 @@ export function useRecommendations(limit: number = 10) {
     }
   }, [favorites.length, lastFavoritesCount]);
 
-  // Train model when favorites change (if we have enough data)
+  // Train model when favorites change (if we have enough data). Defer to avoid blocking UI.
   useEffect(() => {
-    const trainModelIfNeeded = async () => {
-      // Only train if:
-      // 1. We have at least 10 favorites (enough training data)
-      // 2. Favorites count changed by at least 3 (significant change)
-      // 3. Not already training
-      if (
-        favorites.length >= 10 &&
-        Math.abs(favorites.length - lastTrainingCount.current) >= 3 &&
-        !trainingInProgress.current
-      ) {
-        trainingInProgress.current = true;
-        lastTrainingCount.current = favorites.length;
-
-        try {
-          const profile = await getUserProfile();
-          if (!profile) return;
-
-          // Build training data from favorites
-          const userFeatures = convertProfileToFeatures(profile);
-          const trainingData = favorites.map(fav => ({
-            userFeatures,
-            eventFeatures: convertShowToFeatures(fav),
-            label: 1, // Favorited = positive example
-          }));
-
-          // Train the model
-          console.log(`🧠 Training model with ${trainingData.length} favorites...`);
-          await mlService.trainModel(trainingData);
-          console.log('✅ Model training complete');
-        } catch (error) {
-          console.error('Error training model:', error);
-        } finally {
-          trainingInProgress.current = false;
-        }
-      }
-    };
-
-    // Debounce training to avoid too frequent retraining
+    let task: { cancel: () => void } | null = null;
     const timeoutId = setTimeout(() => {
-      trainModelIfNeeded();
-    }, 2000); // Wait 2 seconds after favorites change
+      task = InteractionManager.runAfterInteractions(async () => {
+        if (
+          favorites.length >= 10 &&
+          Math.abs(favorites.length - lastTrainingCount.current) >= 3 &&
+          !trainingInProgress.current
+        ) {
+          trainingInProgress.current = true;
+          lastTrainingCount.current = favorites.length;
+          try {
+            const profile = await getUserProfile();
+            if (!profile) return;
+            const userFeatures = convertProfileToFeatures(profile);
+            const trainingData = favorites.map(fav => ({
+              userFeatures,
+              eventFeatures: convertShowToFeatures(fav),
+              label: 1,
+            }));
+            await mlService.trainModel(trainingData);
+          } catch (error) {
+            console.error('Error training model:', error);
+          } finally {
+            trainingInProgress.current = false;
+          }
+        }
+      });
+    }, 2000);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(timeoutId);
+      if (task) task.cancel();
+    };
   }, [favorites.length]);
 
-  // Calculate recommendations
+  // Load persisted recommendations on mount (filter out past-dated events)
+  useEffect(() => {
+    const loadCached = async () => {
+      const cached = await getCachedRecommendations();
+      if (cached && cached.length > 0) {
+        const filtered = filterOutPastRecommendations(cached);
+        setRecommendations(filtered);
+      }
+    };
+    loadCached();
+  }, []);
+
+  // Calculate recommendations when events/favorites change; persist for next session.
+  // Defer until after transitions (e.g. tab switch) so UI stays responsive.
   const calculateRecommendations = useCallback(async () => {
     if (events.length === 0 || favorites.length < 3) {
-      setRecommendations([]);
       return;
     }
 
@@ -82,6 +90,7 @@ export function useRecommendations(limit: number = 10) {
     try {
       const recs = await getMLRecommendations(events, favorites, limit);
       setRecommendations(recs);
+      saveRecommendations(recs).catch(() => {});
     } catch (error) {
       console.error('Error calculating recommendations:', error);
       setRecommendations([]);
@@ -91,12 +100,16 @@ export function useRecommendations(limit: number = 10) {
   }, [events, favorites, limit]);
 
   useEffect(() => {
-    // Debounce recommendations calculation
-    const timeoutId = setTimeout(() => {
-      calculateRecommendations();
+    let task: { cancel: () => void } | null = null;
+    const t = setTimeout(() => {
+      task = InteractionManager.runAfterInteractions(() => {
+        calculateRecommendations();
+      });
     }, 500);
-
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(t);
+      if (task) task.cancel();
+    };
   }, [calculateRecommendations]);
 
   return { recommendations, loading };

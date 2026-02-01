@@ -1,10 +1,12 @@
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { InteractionManager } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StyleSheet, Text } from 'react-native';
 import { FavoritesProvider, useFavorites } from './src/context/FavoritesContext';
+import { RecommendationsProvider } from './src/context/RecommendationsContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { MyEventsScreen } from './src/screens/MyEventsScreen';
@@ -33,6 +35,7 @@ function AppContent() {
   return (
     <NavigationContainer>
       <Tab.Navigator
+        lazy={true}
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: colors.pink,
@@ -92,13 +95,15 @@ function AppContent() {
   );
 }
 
-// Initialize TensorFlow.js on app startup
+// Initialize TensorFlow.js after UI is ready (avoids blocking tab switch / first paint)
 function MLInitializer() {
   useEffect(() => {
-    // Initialize ML service in the background
-    mlService.initialize().catch(error => {
-      console.log('ML service initialization error:', error);
+    const task = InteractionManager.runAfterInteractions(() => {
+      mlService.initialize().catch(error => {
+        console.log('ML service initialization error:', error);
+      });
     });
+    return () => task.cancel();
   }, []);
   
   return null;
@@ -111,7 +116,9 @@ export default function App() {
         <ThemeAwareStatusBar />
         <MLInitializer />
         <FavoritesProvider>
-          <AppContent />
+          <RecommendationsProvider>
+            <AppContent />
+          </RecommendationsProvider>
         </FavoritesProvider>
       </ThemeProvider>
     </GestureHandlerRootView>

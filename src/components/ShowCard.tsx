@@ -8,7 +8,7 @@ import { useFavorites } from '../context/FavoritesContext';
 import { shareEvent } from '../utils/shareHelpers';
 import { addEventToCalendar } from '../utils/calendarHelpers';
 import { parse } from 'date-fns';
-import { useRecommendations } from '../hooks/useRecommendations';
+import { useRecommendationsContext } from '../context/RecommendationsContext';
 import { getRecommendationData } from '../utils/mlRecommendationEngine';
 import { MLRecommendationBadge } from './MLRecommendationBadge';
 
@@ -27,7 +27,7 @@ export const ShowCard: React.FC<ShowCardProps> = ({
 }) => {
   const { colors } = useTheme();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const { recommendations } = useRecommendations(20);
+  const { recommendations } = useRecommendationsContext();
   const favorited = isFavorite(show);
   const [showQuickActions, setShowQuickActions] = useState(false);
   
