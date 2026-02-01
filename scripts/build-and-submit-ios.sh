@@ -56,7 +56,12 @@ BUILD_NUM=$(node -e "
 ")
 echo "[1/7] Incremented build number: $BUILD_NUM"
 
-# Step 1: Prebuild
+# Commit the version bump so it's included when you push
+NEW_NUM="${BUILD_NUM##* -> }"
+git add app.json
+git diff --cached --quiet || git commit -m "Bump iOS build number to $NEW_NUM"
+
+# Step 2: Prebuild
 echo "[2/7] Running expo prebuild..."
 cd "$PROJECT_DIR"
 npx expo prebuild --platform ios --clean
