@@ -62,10 +62,11 @@ export default {
         return response;
       }
 
-      // GET /api/event-description?artist=...&venue=...: Gemini-generated artist + venue description (cached)
+      // GET /api/event-description?artist=...&venue=...&city=...: Gemini-generated description (cached)
       if (pathname.includes('event-description')) {
         const artistParam = url.searchParams.get('artist');
         const venueParam = url.searchParams.get('venue');
+        const cityParam = url.searchParams.get('city');
         if (!artistParam || !artistParam.trim()) {
           return new Response(
             JSON.stringify({ error: 'Missing query parameter: artist' }),
@@ -74,6 +75,7 @@ export default {
         }
         const artistName = artistParam.trim();
         const venueName = (venueParam && venueParam.trim()) || 'this venue';
+        const cityName = (cityParam && cityParam.trim()) || '';
         const cacheRequest = new Request(url.toString(), { method: 'GET' });
         const cached = await caches.default.match(cacheRequest);
         if (cached) {
@@ -81,7 +83,7 @@ export default {
         }
         let result = { description: '', artistDescription: '', venueDescription: '' };
         if (env.GEMINI_API_KEY) {
-          const geminiResult = await fetchEventDescription(artistName, venueName, env.GEMINI_API_KEY);
+          const geminiResult = await fetchEventDescription(artistName, venueName, cityName, env.GEMINI_API_KEY);
           if (geminiResult) result = geminiResult;
         }
         const body = JSON.stringify(result);
@@ -260,16 +262,25 @@ Rules: genres = 2-4 music genres or styles (e.g. rock, indie, soul, jazz). mood 
 }
 
 /**
- * Call Google Gemini for a full event description (artist + venue together).
- * Returns { description: string, artistDescription?: string, venueDescription?: string } or null.
+ * Call Google Gemini for event description: describe each artist and the venue in the given city.
+ * Returns { description: string, artistDescription: string, venueDescription: string } or null.
  */
-async function fetchEventDescription(artistName, venueName, apiKey) {
-  const prompt = `You are helping a live-music app. A user is viewing an event: "${artistName}" at "${venueName}".
+async function fetchEventDescription(artistName, venueName, cityName, apiKey) {
+  const cityLine = cityName
+    ? `The event is in ${cityName}. Mention the city when describing the venue.`
+    : 'Mention the city or area if you know where the venue is.';
+  const prompt = `You are helping a live-music app. A user is viewing an event with this information:
 
-Write a short, engaging event description for someone deciding whether to go. Respond with ONLY valid JSON (no markdown, no code block, no other text). Use this exact structure:
-{"description":"One cohesive paragraph (3-5 sentences) that describes this show: who the artist is, their sound or vibe, what to expect at a live set, and what the venue is like—atmosphere, crowd, why it's a good spot for this show. Write in a friendly, informative tone.","artistDescription":"2-3 sentences focused only on the artist: style, vibe, what to expect live.","venueDescription":"1-2 sentences focused only on the venue: atmosphere, typical crowd, what makes it notable."}
+Artist(s): ${artistName}
+Venue: ${venueName}
+${cityLine}
 
-If the artist or venue is obscure or unknown, give a brief, honest line rather than inventing facts. Keep everything concise and useful.`;
+Parse the event by artist and venue. Describe each artist (if multiple, describe each; if one, describe that artist): who they are, their music style or vibe, what to expect at a live show. Then describe the venue: atmosphere, typical crowd, what makes it notable, and that it is in ${cityName || 'the city'}.
+
+Respond with ONLY valid JSON. No markdown, no code block, no other text. Use this exact structure:
+{"description":"One cohesive paragraph (3-5 sentences) that describes this show: describe the artist(s), then the venue and that it is in ${cityName || 'the city'}. Friendly, informative tone.","artistDescription":"2-3 sentences about the artist(s) only: style, vibe, what to expect live.","venueDescription":"1-2 sentences about the venue only: atmosphere, crowd, that it is in ${cityName || 'the city'}, what makes it notable."}
+
+If the artist or venue is obscure, give a brief honest line. Do not invent facts.`;
 
   try {
     const res = await fetch(
@@ -284,18 +295,24 @@ If the artist or venue is obscure or unknown, give a brief, honest line rather t
       }
     );
     if (!res.ok) {
-      console.error('Gemini event-description error:', res.status, await res.text());
+      const errBody = await res.text();
+      console.error('Gemini event-description error:', res.status, errBody);
       return null;
     }
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) return null;
-    const raw = text.replace(/^```\w*\n?|\n?```$/g, '').trim();
+    if (!text) {
+      console.error('Gemini event-description: no text in response', JSON.stringify(data).slice(0, 200));
+      return null;
+    }
+    let raw = text.replace(/^```\w*\n?|\n?```$/g, '').trim();
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) raw = jsonMatch[0];
     const parsed = JSON.parse(raw);
     return {
-      description: typeof parsed.description === 'string' ? parsed.description : '',
-      artistDescription: typeof parsed.artistDescription === 'string' ? parsed.artistDescription : '',
-      venueDescription: typeof parsed.venueDescription === 'string' ? parsed.venueDescription : '',
+      description: typeof parsed.description === 'string' ? parsed.description.trim() : '',
+      artistDescription: typeof parsed.artistDescription === 'string' ? parsed.artistDescription.trim() : '',
+      venueDescription: typeof parsed.venueDescription === 'string' ? parsed.venueDescription.trim() : '',
     };
   } catch (e) {
     console.error('Gemini event-description fetch error:', e);

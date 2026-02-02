@@ -52,24 +52,20 @@ const destPath = path.join(appIconSet, filename1024);
 // Copy 1024 icon
 fs.copyFileSync(sourceIcon, destPath);
 
-// Ensure Contents.json has a 1024x1024 entry (universal or ios-marketing)
-const has1024 = contents.images && contents.images.some(
-  (i) => i.size === '1024x1024' && (i.idiom === 'universal' || i.idiom === 'ios-marketing')
+// Ensure Contents.json has the App Store iOS well: idiom "ios-marketing", 1024x1024@1x.
+// App Store Connect uses this slot for the icon under Apps and on the store.
+contents.images = contents.images || [];
+const hasIosMarketing = contents.images.some(
+  (i) => i.size === '1024x1024' && i.idiom === 'ios-marketing'
 );
-if (!has1024) {
-  const hasUniversal = contents.images && contents.images.some(
-    (i) => i.size === '1024x1024' && i.idiom === 'universal'
-  );
-  if (!hasUniversal) {
-    contents.images = contents.images || [];
-    contents.images.push({
-      filename: filename1024,
-      idiom: 'universal',
-      platform: 'ios',
-      size: '1024x1024',
-    });
-    fs.writeFileSync(contentsPath, JSON.stringify(contents, null, 2) + '\n');
-  }
+if (!hasIosMarketing) {
+  contents.images.push({
+    filename: filename1024,
+    idiom: 'ios-marketing',
+    scale: '1x',
+    size: '1024x1024',
+  });
+  fs.writeFileSync(contentsPath, JSON.stringify(contents, null, 2) + '\n');
 }
 
-console.log('ensure-app-icon-1024: copied assets/icon.png to AppIcon (1024x1024) for App Store.');
+console.log('ensure-app-icon-1024: copied assets/icon.png to AppIcon (1024x1024 ios-marketing) for App Store.');

@@ -108,11 +108,12 @@ class ApiService {
   }
 
   /**
-   * Fetch Gemini-generated artist + venue description for an event (cached on backend).
+   * Fetch Gemini-generated event description (artist + venue + city). Cached on backend.
    */
-  async fetchEventDescription(artist: string, venue: string): Promise<EventDescriptionResponse> {
+  async fetchEventDescription(artist: string, venue: string, city?: string): Promise<EventDescriptionResponse> {
     try {
-      const url = `${API_ENDPOINTS.EVENT_DESCRIPTION}?artist=${encodeURIComponent(artist)}&venue=${encodeURIComponent(venue)}`;
+      let url = `${API_ENDPOINTS.EVENT_DESCRIPTION}?artist=${encodeURIComponent(artist)}&venue=${encodeURIComponent(venue)}`;
+      if (city?.trim()) url += `&city=${encodeURIComponent(city.trim())}`;
       const response = await this.client.get<EventDescriptionResponse>(url);
       return {
         description: response.data?.description ?? '',
@@ -121,7 +122,7 @@ class ApiService {
       };
     } catch (error: any) {
       if (error.response) console.warn('Event description API error:', error.response.status);
-      return { artistDescription: '', venueDescription: '' };
+      return { description: '', artistDescription: '', venueDescription: '' };
     }
   }
 

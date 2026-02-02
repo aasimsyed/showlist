@@ -12,6 +12,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { useEventDetail } from '../context/EventDetailContext';
+import { useCity } from '../context/CityContext';
+import { useCities } from '../hooks/useCities';
 import { apiService } from '../services/api';
 import { Show, EventDay } from '../types';
 
@@ -46,6 +48,9 @@ function buildSuggestions(
 export const EventDetailModal: React.FC = () => {
   const { colors } = useTheme();
   const { show, eventDate, eventsForSuggestions, setSelected, clearSelected } = useEventDetail();
+  const { city: cityId } = useCity();
+  const { cities } = useCities();
+  const cityLabel = cities.find((c) => c.id === cityId)?.label ?? cityId ?? '';
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [fullDescription, setFullDescription] = useState('');
@@ -62,7 +67,7 @@ export const EventDetailModal: React.FC = () => {
     setArtistDescription('');
     setVenueDescription('');
     apiService
-      .fetchEventDescription(show.artist, show.venue)
+      .fetchEventDescription(show.artist, show.venue, cityLabel)
       .then((res) => {
         if (res.description?.trim()) {
           setFullDescription(res.description.trim());
@@ -75,7 +80,7 @@ export const EventDetailModal: React.FC = () => {
       })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
-  }, [show?.artist, show?.venue]);
+  }, [show?.artist, show?.venue, cityLabel]);
 
   const suggestions = useMemo(() => {
     if (!show || !eventsForSuggestions.length) return [];
