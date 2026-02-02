@@ -1,6 +1,16 @@
 import axios, { AxiosInstance } from 'axios';
-import { EventsResponse, EventDay } from '../types';
+import { EventsResponse, ShowlistCityId } from '../types';
 import { API_BASE_URL, API_ENDPOINTS } from '../utils/constants';
+
+export interface CityOption {
+  id: ShowlistCityId;
+  label: string;
+}
+
+export interface CitiesResponse {
+  cities: CityOption[];
+  lastUpdated: string;
+}
 
 class ApiService {
   private client: AxiosInstance;
@@ -8,7 +18,7 @@ class ApiService {
   constructor() {
     this.client = axios.create({
       baseURL: API_BASE_URL,
-      timeout: 10000, // 10 second timeout
+      timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -16,13 +26,12 @@ class ApiService {
   }
 
   /**
-   * Fetch events from the API
+   * Fetch events from the API for the given city
    */
-  async fetchEvents(): Promise<EventsResponse> {
+  async fetchEvents(city: ShowlistCityId): Promise<EventsResponse> {
     try {
-      const response = await this.client.get<EventsResponse>(
-        API_ENDPOINTS.EVENTS
-      );
+      const url = `${API_ENDPOINTS.EVENTS}?city=${encodeURIComponent(city)}`;
+      const response = await this.client.get<EventsResponse>(url);
       
       if (!response.data || !response.data.events) {
         throw new Error('Invalid response format');
@@ -42,6 +51,24 @@ class ApiService {
         // Error setting up request
         throw new Error(`Request error: ${error.message}`);
       }
+    }
+  }
+
+  /**
+   * Fetch list of cities from network page (scraped from www.showlists.net)
+   */
+  async fetchCities(): Promise<CitiesResponse> {
+    try {
+      const response = await this.client.get<CitiesResponse>(API_ENDPOINTS.CITIES);
+      if (!response.data?.cities?.length) {
+        throw new Error('Invalid cities response');
+      }
+      return response.data;
+    } catch (error: any) {
+      if (error.response) {
+        throw new Error(`API Error: ${error.response.status}`);
+      }
+      throw error;
     }
   }
 

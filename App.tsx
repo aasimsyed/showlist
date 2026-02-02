@@ -5,6 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StyleSheet, Text } from 'react-native';
+import { CityProvider } from './src/context/CityContext';
 import { FavoritesProvider, useFavorites } from './src/context/FavoritesContext';
 import { RecommendationsProvider } from './src/context/RecommendationsContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
@@ -115,11 +116,13 @@ export default function App() {
       <ThemeProvider>
         <ThemeAwareStatusBar />
         <MLInitializer />
-        <FavoritesProvider>
-          <RecommendationsProvider>
-            <AppContent />
-          </RecommendationsProvider>
-        </FavoritesProvider>
+        <CityProvider>
+          <FavoritesProvider>
+            <RecommendationsProvider>
+              <AppContent />
+            </RecommendationsProvider>
+          </FavoritesProvider>
+        </CityProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

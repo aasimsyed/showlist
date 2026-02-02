@@ -1,19 +1,26 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useCity } from '../context/CityContext';
+import { useCities } from '../hooks/useCities';
 
 interface HeaderProps {
   onFiltersPress: () => void;
   onRefreshPress: () => void;
+  onCityPress?: () => void;
   hasActiveFilters?: boolean;
 }
 
-export const Header: React.FC<HeaderProps> = ({ 
-  onFiltersPress, 
+export const Header: React.FC<HeaderProps> = ({
+  onFiltersPress,
   onRefreshPress,
+  onCityPress,
   hasActiveFilters = false,
 }) => {
   const { colors, mode, setMode, isDark } = useTheme();
+  const { city } = useCity();
+  const { cities } = useCities();
+  const cityLabel = cities.find((c) => c.id === city)?.label ?? city;
   const styles = createStyles(colors);
 
   const toggleTheme = () => {
@@ -26,12 +33,28 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  const titleCity = onCityPress ? (
+    <TouchableOpacity
+      onPress={onCityPress}
+      accessibilityLabel={`Change city. Current city: ${cityLabel}`}
+      accessibilityRole="button"
+      accessibilityHint="Double tap to choose a city"
+      style={styles.cityTouchable}
+    >
+      <Text style={styles.title}>
+        Showlist<Text style={styles.colon}>:</Text> <Text style={styles.cityName}>{cityLabel} ▼</Text>
+      </Text>
+    </TouchableOpacity>
+  ) : (
+    <Text style={styles.title}>
+      Showlist<Text style={styles.colon}>:</Text> {cityLabel}
+    </Text>
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>
-          Showlist<Text style={styles.colon}>:</Text> Austin
-        </Text>
+        {titleCity}
         
         <View style={styles.actions}>
           <TouchableOpacity
@@ -108,6 +131,13 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   colon: {
     color: colors.pink,
+  },
+  cityTouchable: {
+    flexShrink: 0,
+  },
+  cityName: {
+    textDecorationLine: 'underline',
+    textDecorationColor: colors.text,
   },
   actions: {
     flexDirection: 'row',

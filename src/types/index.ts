@@ -1,3 +1,6 @@
+/** City id = subdomain (e.g. 'austin'). List is fetched from www.showlists.net. */
+export type ShowlistCityId = string;
+
 export interface Show {
   artist: string;
   venue: string;

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Linking } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useCity } from '../context/CityContext';
 import { formatDistanceToNow } from 'date-fns';
 
 interface FooterProps {
@@ -9,12 +10,14 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ lastUpdated }) => {
   const { colors } = useTheme();
+  const { city } = useCity();
+
   const handleSubmitPress = async () => {
-    const url = 'https://austin.showlists.net/submit/';
+    const url = `https://${city}.showlists.net/submit/`;
     try {
       await Linking.openURL(url);
-    } catch (error) {
-      console.error('Error opening submit link:', error);
+    } catch (err) {
+      console.error('Error opening submit link:', err);
     }
   };
 
@@ -22,8 +25,8 @@ export const Footer: React.FC<FooterProps> = ({ lastUpdated }) => {
     const url = 'https://www.patreon.com/showlistaustin';
     try {
       await Linking.openURL(url);
-    } catch (error) {
-      console.error('Error opening support link:', error);
+    } catch (err) {
+      console.error('Error opening support link:', err);
     }
   };
 
@@ -32,7 +35,7 @@ export const Footer: React.FC<FooterProps> = ({ lastUpdated }) => {
   return (
     <View style={styles.container}>
       <Text style={styles.attribution}>
-        Data sourced from austin.showlists.net
+        Data sourced from {city}.showlists.net
       </Text>
       
       {lastUpdated && (

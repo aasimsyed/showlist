@@ -107,6 +107,8 @@ cat > "$EXPORT_PLIST" << EOF
   <string>app-store-connect</string>
   <key>teamID</key>
   <string>$TEAM_ID</string>
+  <key>signingStyle</key>
+  <string>automatic</string>
   <key>uploadBitcode</key>
   <false/>
   <key>uploadSymbols</key>
@@ -122,6 +124,7 @@ xcodebuild -workspace "$WORKSPACE" \
   -configuration Release \
   -destination "generic/platform=iOS" \
   -archivePath "$ARCHIVE_PATH" \
+  -allowProvisioningUpdates \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   archive
 

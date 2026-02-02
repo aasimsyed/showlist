@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiService } from '../services/api';
+import { useCity } from '../context/CityContext';
 import { EventDay, EventsResponse } from '../types';
-import { CACHE_KEYS, CACHE_DURATION_MS, AUTO_REFRESH_INTERVAL_MS } from '../utils/constants';
+import { getCacheKeys, CACHE_DURATION_MS, AUTO_REFRESH_INTERVAL_MS } from '../utils/constants';
 
 interface UseEventsReturn {
   events: EventDay[];
@@ -15,6 +16,8 @@ interface UseEventsReturn {
 }
 
 export function useEvents(): UseEventsReturn {
+  const { city } = useCity();
+  const cacheKeys = getCacheKeys(city);
   const [events, setEvents] = useState<EventDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,12 +25,12 @@ export function useEvents(): UseEventsReturn {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   /**
-   * Load cached events from AsyncStorage
+   * Load cached events from AsyncStorage (city-scoped)
    */
   const loadCachedEvents = useCallback(async (): Promise<boolean> => {
     try {
-      const cachedData = await AsyncStorage.getItem(CACHE_KEYS.EVENTS);
-      const cachedTimestamp = await AsyncStorage.getItem(CACHE_KEYS.LAST_UPDATED);
+      const cachedData = await AsyncStorage.getItem(cacheKeys.EVENTS);
+      const cachedTimestamp = await AsyncStorage.getItem(cacheKeys.LAST_UPDATED);
       
       if (cachedData && cachedTimestamp) {
         const timestamp = new Date(cachedTimestamp);
@@ -47,19 +50,19 @@ export function useEvents(): UseEventsReturn {
     }
     
     return false;
-  }, []);
+  }, [cacheKeys.EVENTS, cacheKeys.LAST_UPDATED]);
 
   /**
-   * Save events to cache
+   * Save events to cache (city-scoped)
    */
   const saveToCache = useCallback(async (data: EventsResponse) => {
     try {
-      await AsyncStorage.setItem(CACHE_KEYS.EVENTS, JSON.stringify(data.events));
-      await AsyncStorage.setItem(CACHE_KEYS.LAST_UPDATED, new Date().toISOString());
+      await AsyncStorage.setItem(cacheKeys.EVENTS, JSON.stringify(data.events));
+      await AsyncStorage.setItem(cacheKeys.LAST_UPDATED, new Date().toISOString());
     } catch (err) {
       console.error('Error saving to cache:', err);
     }
-  }, []);
+  }, [cacheKeys.EVENTS, cacheKeys.LAST_UPDATED]);
 
   // Ref to track if we're currently fetching to avoid duplicate calls
   const isFetchingRef = useRef(false);
@@ -78,7 +81,7 @@ export function useEvents(): UseEventsReturn {
     setError(null);
 
     try {
-      const response = await apiService.fetchEvents();
+      const response = await apiService.fetchEvents(city);
       
       setEvents(response.events);
       setLastUpdated(new Date(response.lastUpdated));
@@ -98,7 +101,7 @@ export function useEvents(): UseEventsReturn {
       setIsRefreshing(false);
       isFetchingRef.current = false;
     }
-  }, [loadCachedEvents, saveToCache]);
+  }, [city, loadCachedEvents, saveToCache]);
 
   /**
    * Fetch events from API
@@ -188,17 +191,16 @@ export function useEvents(): UseEventsReturn {
     };
   }, [shouldRefresh, fetchEvents]);
 
-  // Initial load
+  // Initial load and refetch when city changes
   useEffect(() => {
     fetchEvents(false);
-    
-    // Cleanup background refresh timeout on unmount
+
     return () => {
       if (backgroundRefreshRef.current) {
         clearTimeout(backgroundRefreshRef.current);
       }
     };
-  }, []);
+  }, [city, fetchEvents]);
 
   return {
     events,

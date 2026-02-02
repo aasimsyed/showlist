@@ -27,13 +27,45 @@ export default {
     }
 
     try {
-      // Fetch the showlist site
-      const response = await fetch('https://austin.showlists.net/', {
+      const url = new URL(request.url);
+      const pathname = url.pathname || '';
+
+      // GET /api/cities: scrape https://www.showlists.net/ for city links
+      if (pathname.includes('cities')) {
+        const networkRes = await fetch('https://www.showlists.net/', {
+          headers: { 'User-Agent': 'ShowlistApp/1.0' },
+          cf: { cacheTtl: 3600, cacheEverything: true },
+        });
+        if (!networkRes.ok) {
+          throw new Error(`Network page HTTP ${networkRes.status}`);
+        }
+        const networkHtml = await networkRes.text();
+        const cities = parseNetworkCities(networkHtml);
+        if (cities.length === 0) {
+          throw new Error('No cities found on network page');
+        }
+        return new Response(
+          JSON.stringify({ cities, lastUpdated: new Date().toISOString() }),
+          {
+            headers: {
+              ...CORS_HEADERS,
+              'Content-Type': 'application/json',
+              'Cache-Control': 'public, max-age=3600',
+            },
+          }
+        );
+      }
+
+      // GET /api/events?city=...: fetch that city's showlist
+      const cityParam = (url.searchParams.get('city') || 'austin').toLowerCase().replace(/[^a-z-]/g, '') || 'austin';
+      const showlistUrl = `https://${cityParam}.showlists.net/`;
+
+      const response = await fetch(showlistUrl, {
         headers: {
           'User-Agent': 'ShowlistApp/1.0',
         },
         cf: {
-          cacheTtl: 300, // Cache for 5 minutes
+          cacheTtl: 300,
           cacheEverything: true,
         },
       });
@@ -44,14 +76,12 @@ export default {
 
       const html = await response.text();
       
-      // Parse HTML
       const events = parseShowlistHTML(html);
 
       if (events.length === 0) {
         throw new Error('No events found in HTML');
       }
 
-      // Return JSON
       return new Response(
         JSON.stringify({
           events,
@@ -61,7 +91,7 @@ export default {
           headers: {
             ...CORS_HEADERS,
             'Content-Type': 'application/json',
-            'Cache-Control': 'public, max-age=300', // 5 min cache
+            'Cache-Control': 'public, max-age=300',
           },
         }
       );
@@ -85,6 +115,27 @@ export default {
     }
   },
 };
+
+/**
+ * Parse https://www.showlists.net/ HTML for city links (e.g. Cities dropdown).
+ * Extracts links to *.showlists.net (excluding www) and returns { id, label }.
+ */
+function parseNetworkCities(html) {
+  const cities = [];
+  const re = /<a[^>]*href="https:\/\/([^."\/]+)\.showlists\.net[^"]*"[^>]*>([^<]+)<\/a>/gi;
+  let m;
+  const seen = new Set();
+  while ((m = re.exec(html)) !== null) {
+    const id = m[1].toLowerCase();
+    if (id === 'www') continue;
+    const label = m[2].trim();
+    if (label && !seen.has(id)) {
+      seen.add(id);
+      cities.push({ id, label });
+    }
+  }
+  return cities;
+}
 
 /**
  * Parse HTML from austin.showlists.net

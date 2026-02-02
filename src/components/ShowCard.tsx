@@ -4,6 +4,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import { Show } from '../types';
 import { useTheme } from '../context/ThemeContext';
+import { useCity } from '../context/CityContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { shareEvent } from '../utils/shareHelpers';
 import { addEventToCalendar } from '../utils/calendarHelpers';
@@ -26,6 +27,7 @@ export const ShowCard: React.FC<ShowCardProps> = ({
   accessibilityLabel,
 }) => {
   const { colors } = useTheme();
+  const { city } = useCity();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { recommendations } = useRecommendationsContext();
   const favorited = isFavorite(show);
@@ -48,7 +50,7 @@ export const ShowCard: React.FC<ShowCardProps> = ({
 
   const handleShare = async () => {
     setShowQuickActions(false);
-    await shareEvent(show);
+    await shareEvent(show, city);
   };
 
   const handleAddToCalendar = async () => {

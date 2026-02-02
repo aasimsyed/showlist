@@ -1,12 +1,15 @@
 import { Share } from 'react-native';
-import { Show } from '../types';
+import { Show, ShowlistCityId } from '../types';
 
 /**
  * Share an event via native share sheet
+ * @param show - event to share
+ * @param city - current city (for event link fallback)
  */
-export async function shareEvent(show: Show): Promise<void> {
+export async function shareEvent(show: Show, city: ShowlistCityId = 'austin'): Promise<void> {
   try {
-    const shareText = `${show.artist} at ${show.venue}${show.time ? ` - ${show.time}` : ''}\n\n${show.eventLink || `https://austin.showlists.net`}`;
+    const baseUrl = `https://${city}.showlists.net`;
+    const shareText = `${show.artist} at ${show.venue}${show.time ? ` - ${show.time}` : ''}\n\n${show.eventLink || baseUrl}`;
     
     await Share.share({
       message: shareText,

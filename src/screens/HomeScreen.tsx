@@ -10,16 +10,20 @@ import { EventList } from '../components/EventList';
 import { Footer } from '../components/Footer';
 import { LoadingState } from '../components/LoadingState';
 import { FilterModal } from '../components/FilterModal';
+import { CityPickerModal } from '../components/CityPickerModal';
 import { useEvents } from '../hooks/useEvents';
 import { SwipeableContainer } from '../hooks/useSwipeGesture';
 import { useTheme } from '../context/ThemeContext';
+import { useCity } from '../context/CityContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CACHE_KEYS, SEARCH_DEBOUNCE_MS } from '../utils/constants';
+import { getCacheKeys, SEARCH_DEBOUNCE_MS } from '../utils/constants';
 import { FilterState, DEFAULT_FILTERS } from '../types/filters';
 import { hasActiveFilters } from '../utils/filterHelpers';
 
 export const HomeScreen: React.FC = () => {
   const { colors } = useTheme();
+  const { city } = useCity();
+  const cacheKeys = getCacheKeys(city);
   const styles = createStyles(colors);
   const { events, loading, error, lastUpdated, refresh, isRefreshing } = useEvents();
   const [currentDayIndex, setCurrentDayIndex] = useState(0);
@@ -27,37 +31,43 @@ export const HomeScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [cityModalVisible, setCityModalVisible] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load saved day index from cache
+  // Reset day index when city changes (saved index loads in next effect when events update)
+  React.useEffect(() => {
+    setCurrentDayIndex(0);
+  }, [city]);
+
+  // Load saved day index from cache (city-scoped)
   React.useEffect(() => {
     const loadSavedIndex = async () => {
       try {
-        const savedIndex = await AsyncStorage.getItem(CACHE_KEYS.CURRENT_DAY_INDEX);
-        if (savedIndex !== null) {
+        const savedIndex = await AsyncStorage.getItem(cacheKeys.CURRENT_DAY_INDEX);
+        if (savedIndex != null) {
           const index = parseInt(savedIndex, 10);
           if (index >= 0 && index < events.length) {
             setCurrentDayIndex(index);
           }
         }
-      } catch (error) {
-        console.error('Error loading saved day index:', error);
+      } catch (err) {
+        console.error('Error loading saved day index:', err);
       }
     };
 
     if (events.length > 0) {
       loadSavedIndex();
     }
-  }, [events.length]);
+  }, [events.length, cacheKeys.CURRENT_DAY_INDEX]);
 
-  // Save day index to cache
+  // Save day index to cache (city-scoped)
   const saveDayIndex = useCallback(async (index: number) => {
     try {
-      await AsyncStorage.setItem(CACHE_KEYS.CURRENT_DAY_INDEX, index.toString());
-    } catch (error) {
-      console.error('Error saving day index:', error);
+      await AsyncStorage.setItem(cacheKeys.CURRENT_DAY_INDEX, index.toString());
+    } catch (err) {
+      console.error('Error saving day index:', err);
     }
-  }, []);
+  }, [cacheKeys.CURRENT_DAY_INDEX]);
 
   // Search handler with immediate input update and debounced filter
   const handleSearchChange = useCallback((query: string) => {
@@ -142,6 +152,10 @@ export const HomeScreen: React.FC = () => {
     setFilterModalVisible(true);
   }, []);
 
+  const handleCityPress = useCallback(() => {
+    setCityModalVisible(true);
+  }, []);
+
   const handleFiltersChange = useCallback((newFilters: FilterState) => {
     setFilters(newFilters);
     // Save filters to AsyncStorage
@@ -172,6 +186,7 @@ export const HomeScreen: React.FC = () => {
         <Header
           onFiltersPress={handleFiltersPress}
           onRefreshPress={refresh}
+          onCityPress={handleCityPress}
         />
         <View style={styles.errorContainer}>
           <LoadingState message={`Error: ${error}`} />
@@ -187,6 +202,7 @@ export const HomeScreen: React.FC = () => {
         <Header
           onFiltersPress={handleFiltersPress}
           onRefreshPress={refresh}
+          onCityPress={handleCityPress}
         />
         <LoadingState />
       </SafeAreaView>
@@ -202,6 +218,7 @@ export const HomeScreen: React.FC = () => {
       <Header
         onFiltersPress={handleFiltersPress}
         onRefreshPress={refresh}
+        onCityPress={handleCityPress}
         hasActiveFilters={hasActiveFilters(filters)}
       />
       
@@ -246,6 +263,11 @@ export const HomeScreen: React.FC = () => {
         onFiltersChange={handleFiltersChange}
         events={events}
         currentDayIndex={currentDayIndex}
+      />
+
+      <CityPickerModal
+        visible={cityModalVisible}
+        onClose={() => setCityModalVisible(false)}
       />
     </SafeAreaView>
   );
