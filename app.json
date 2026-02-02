@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.showlist.austin",
-      "buildNumber": "23",
+      "buildNumber": "24",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app uses location to show nearby music venues.",
         "NSCalendarsUsageDescription": "This app uses your calendar to add events.",
