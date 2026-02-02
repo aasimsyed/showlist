@@ -56,31 +56,41 @@ export const EventDetailModal: React.FC = () => {
   const [fullDescription, setFullDescription] = useState('');
   const [artistDescription, setArtistDescription] = useState('');
   const [venueDescription, setVenueDescription] = useState('');
+  const [hint, setHint] = useState<string | undefined>();
 
   const visible = show != null;
 
-  useEffect(() => {
+  const fetchDescription = React.useCallback(() => {
     if (!show) return;
     setLoading(true);
     setLoadError(false);
-    setFullDescription('');
-    setArtistDescription('');
-    setVenueDescription('');
+    setHint(undefined);
     apiService
       .fetchEventDescription(show.artist, show.venue, cityLabel)
       .then((res) => {
+        setHint(res._hint);
         if (res.description?.trim()) {
           setFullDescription(res.description.trim());
         } else if (res.artistDescription || res.venueDescription) {
           const parts = [res.artistDescription, res.venueDescription].filter(Boolean);
           setFullDescription(parts.join(' '));
+        } else {
+          setFullDescription('');
         }
         setArtistDescription(res.artistDescription ?? '');
         setVenueDescription(res.venueDescription ?? '');
       })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
-  }, [show?.artist, show?.venue, cityLabel]);
+  }, [show, cityLabel]);
+
+  useEffect(() => {
+    if (!show) return;
+    setFullDescription('');
+    setArtistDescription('');
+    setVenueDescription('');
+    fetchDescription();
+  }, [show?.artist, show?.venue, cityLabel, fetchDescription]);
 
   const suggestions = useMemo(() => {
     if (!show || !eventsForSuggestions.length) return [];
@@ -127,11 +137,27 @@ export const EventDetailModal: React.FC = () => {
               <Text style={styles.loadingText}>Loading event description…</Text>
             </View>
           ) : loadError ? (
-            <Text style={styles.bodyMuted}>Description couldn't be loaded. Check your connection and try again.</Text>
+            <>
+              <Text style={styles.bodyMuted}>Description couldn't be loaded. Check your connection and try again.</Text>
+              <TouchableOpacity style={[styles.linkButton, { marginTop: 12 }]} onPress={fetchDescription}>
+                <Text style={styles.linkButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </>
           ) : fullDescription ? (
             <Text style={styles.body}>{fullDescription}</Text>
           ) : (
-            <Text style={styles.bodyMuted}>No description available for this event.</Text>
+            <>
+              <Text style={styles.bodyMuted}>
+                {hint === 'missing_api_key'
+                  ? 'Description unavailable (API key not set on server).'
+                  : hint === 'gemini_unavailable'
+                    ? 'Description temporarily unavailable. Try again in a moment.'
+                    : 'No description available for this event.'}
+              </Text>
+              <TouchableOpacity style={[styles.linkButton, { marginTop: 12 }]} onPress={fetchDescription}>
+                <Text style={styles.linkButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </>
           )}
 
           {(show.eventLink || show.mapLink) && (

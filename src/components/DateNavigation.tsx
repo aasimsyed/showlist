@@ -27,8 +27,8 @@ export const DateNavigation: React.FC<DateNavigationProps> = ({
   canGoPrevious,
   canGoNext,
 }) => {
-  const { colors } = useTheme();
-  const styles = createStyles(colors);
+  const { colors, typography } = useTheme();
+  const styles = createStyles(colors, typography);
   const scrollRef = useRef<ScrollView>(null);
   const isProgrammaticScrollRef = useRef(false);
 
@@ -116,7 +116,7 @@ export const DateNavigation: React.FC<DateNavigationProps> = ({
   );
 };
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, typography: any) => StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -169,8 +169,8 @@ const createStyles = (colors: any) => StyleSheet.create({
     borderColor: colors.pink,
   },
   pillText: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: typography.captionSize,
+    fontWeight: typography.captionWeight,
     color: colors.text,
   },
   pillTextSelected: {
@@ -178,7 +178,7 @@ const createStyles = (colors: any) => StyleSheet.create({
   },
   datePlaceholder: {
     flex: 1,
-    fontSize: 14,
+    fontSize: typography.captionSize,
     color: colors.textSecondary,
     textAlign: 'center',
     paddingVertical: 8,

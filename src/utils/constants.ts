@@ -45,13 +45,13 @@ export function getCacheKeys(city: ShowlistCityId): { EVENTS: string; LAST_UPDAT
   };
 }
 
-// UI Constants (Legacy - use ThemeContext for new code)
+// UI Constants (Legacy - use ThemeContext for new code; aligned with showlistaustin.com)
 export const COLORS = {
-  PINK: '#FF1493', // Vibrant pink for date headers and colon (DeepPink)
-  BLACK: '#000000',
-  GRAY_LIGHT: '#E5E5E5',
-  GRAY_BORDER: '#D3D3D3',
-  WHITE: '#FFFFFF',
+  PINK: '#b91c1c', // Warm red accent (Showlist Austin style)
+  BLACK: '#1a1a1a',
+  GRAY_LIGHT: '#e8e6e3',
+  GRAY_BORDER: '#e0ddd8',
+  WHITE: '#ffffff',
 };
 
 // Gesture Constants

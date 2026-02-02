@@ -28,7 +28,7 @@ export const ShowCard: React.FC<ShowCardProps> = ({
   accessibilityLabel,
   onShowPress,
 }) => {
-  const { colors } = useTheme();
+  const { colors, typography } = useTheme();
   const { city } = useCity();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { recommendations } = useRecommendationsContext();
@@ -124,7 +124,7 @@ export const ShowCard: React.FC<ShowCardProps> = ({
       }
     });
 
-  const styles = createStyles(colors);
+  const styles = createStyles(colors, typography);
 
   return (
     <GestureDetector gesture={swipeUpGesture}>
@@ -259,7 +259,7 @@ export const ShowCard: React.FC<ShowCardProps> = ({
   );
 };
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, typography: any) => StyleSheet.create({
   container: {
     paddingVertical: 16,
     paddingHorizontal: 16,
@@ -276,16 +276,16 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginRight: 4,
   },
   artist: {
-    fontSize: 16,
+    fontSize: typography.bodySize,
     color: colors.text,
     textDecorationLine: 'underline',
   },
   text: {
-    fontSize: 16,
+    fontSize: typography.bodySize,
     color: colors.text,
   },
   venue: {
-    fontSize: 16,
+    fontSize: typography.bodySize,
     color: colors.text,
     marginLeft: 4,
   },
@@ -298,10 +298,10 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
   },
   mapIcon: {
-    fontSize: 16,
+    fontSize: typography.bodySize,
   },
   time: {
-    fontSize: 16,
+    fontSize: typography.bodySize,
     color: colors.text,
     marginLeft: 4,
   },
@@ -335,7 +335,7 @@ const createStyles = (colors: any) => StyleSheet.create({
     marginBottom: 4,
   },
   quickActionText: {
-    fontSize: 14, // Increased to meet minimum readable size (WCAG AA - 14px bold is acceptable)
+    fontSize: typography.captionSize,
     color: colors.text,
     fontWeight: '600',
   },

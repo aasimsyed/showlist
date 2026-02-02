@@ -26,6 +26,8 @@ export interface EventDescriptionResponse {
   description?: string;
   artistDescription: string;
   venueDescription: string;
+  /** Set when backend has no Gemini API key or Gemini returned no content. */
+  _hint?: 'missing_api_key' | 'gemini_unavailable';
 }
 
 class ApiService {
@@ -114,11 +116,13 @@ class ApiService {
     try {
       let url = `${API_ENDPOINTS.EVENT_DESCRIPTION}?artist=${encodeURIComponent(artist)}&venue=${encodeURIComponent(venue)}`;
       if (city?.trim()) url += `&city=${encodeURIComponent(city.trim())}`;
+      url += '&_v=3'; // cache-buster so app gets fresh response (avoids cached truncated JSON)
       const response = await this.client.get<EventDescriptionResponse>(url);
       return {
         description: response.data?.description ?? '',
         artistDescription: response.data?.artistDescription ?? '',
         venueDescription: response.data?.venueDescription ?? '',
+        _hint: response.data?._hint,
       };
     } catch (error: any) {
       if (error.response) console.warn('Event description API error:', error.response.status);

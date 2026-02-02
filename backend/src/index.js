@@ -85,16 +85,20 @@ export default {
         if (env.GEMINI_API_KEY) {
           const geminiResult = await fetchEventDescription(artistName, venueName, cityName, env.GEMINI_API_KEY);
           if (geminiResult) result = geminiResult;
+          else result._hint = 'gemini_unavailable';
+        } else {
+          result._hint = 'missing_api_key';
         }
         const body = JSON.stringify(result);
+        const hasContent = result.description || result.artistDescription || result.venueDescription;
         const response = new Response(body, {
           headers: {
             ...CORS_HEADERS,
             'Content-Type': 'application/json',
-            'Cache-Control': 'public, max-age=604800',
+            'Cache-Control': hasContent ? 'public, max-age=604800' : 'no-store',
           },
         });
-        await caches.default.put(cacheRequest, response.clone());
+        if (hasContent) await caches.default.put(cacheRequest, response.clone());
         return response;
       }
 
@@ -228,7 +232,7 @@ Rules: genres = 2-4 music genres or styles (e.g. rock, indie, soul, jazz). mood 
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -262,6 +266,30 @@ Rules: genres = 2-4 music genres or styles (e.g. rock, indie, soul, jazz). mood 
 }
 
 /**
+ * Unwrap description to plain text. Handles nested JSON and truncated JSON from Gemini.
+ */
+function unwrapDescriptionText(desc) {
+  if (typeof desc !== 'string') return desc;
+  let s = desc.trim();
+  while (s.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(s);
+      const next = (parsed.description ?? parsed.Description ?? '').trim();
+      if (!next) break;
+      s = next;
+    } catch (_) {
+      // Truncated or invalid JSON: extract first "description":"..." value
+      const m = s.match(/"description"\s*:\s*"((?:[^"\\]|\\.)*)"?/);
+      if (m && m[1]) {
+        s = m[1].replace(/\\"/g, '"').trim();
+      }
+      break;
+    }
+  }
+  return s;
+}
+
+/**
  * Call Google Gemini for event description: describe each artist and the venue in the given city.
  * Returns { description: string, artistDescription: string, venueDescription: string } or null.
  */
@@ -275,22 +303,22 @@ Artist(s): ${artistName}
 Venue: ${venueName}
 ${cityLine}
 
-Parse the event by artist and venue. Describe each artist (if multiple, describe each; if one, describe that artist): who they are, their music style or vibe, what to expect at a live show. Then describe the venue: atmosphere, typical crowd, what makes it notable, and that it is in ${cityName || 'the city'}.
+Describe the artist(s) and the venue factually. No lead-in phrases like "Get ready for..." or "Don't miss...". Just describe who the artist is, their music style, what to expect live; then describe the venue, its atmosphere, crowd, and that it is in ${cityName || 'the city'}.
 
 Respond with ONLY valid JSON. No markdown, no code block, no other text. Use this exact structure:
-{"description":"One cohesive paragraph (3-5 sentences) that describes this show: describe the artist(s), then the venue and that it is in ${cityName || 'the city'}. Friendly, informative tone.","artistDescription":"2-3 sentences about the artist(s) only: style, vibe, what to expect live.","venueDescription":"1-2 sentences about the venue only: atmosphere, crowd, that it is in ${cityName || 'the city'}, what makes it notable."}
+{"description":"One paragraph describing the artist(s) and the venue. Start directly with the artist: who they are, their style, what to expect. Then the venue: atmosphere, crowd, location. No opening filler.","artistDescription":"2-3 sentences about the artist(s) only: style, vibe, what to expect live.","venueDescription":"1-2 sentences about the venue only: atmosphere, crowd, that it is in ${cityName || 'the city'}, what makes it notable."}
 
 If the artist or venue is obscure, give a brief honest line. Do not invent facts.`;
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 768, responseMimeType: 'application/json' },
+          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
         }),
       }
     );
@@ -300,20 +328,58 @@ If the artist or venue is obscure, give a brief honest line. Do not invent facts
       return null;
     }
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const candidate = data?.candidates?.[0];
+    const parts = candidate?.content?.parts;
+    let text = null;
+    if (parts?.length) {
+      for (const p of parts) {
+        if (p.text) {
+          text = p.text;
+          break;
+        }
+      }
+    }
     if (!text) {
-      console.error('Gemini event-description: no text in response', JSON.stringify(data).slice(0, 200));
+      const feedback = data?.promptFeedback?.blockReason || candidate?.finishReason || 'unknown';
+      console.error('Gemini event-description: no text', 'blockReason/finishReason=', feedback, 'body=', JSON.stringify(data).slice(0, 400));
       return null;
     }
     let raw = text.replace(/^```\w*\n?|\n?```$/g, '').trim();
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) raw = jsonMatch[0];
-    const parsed = JSON.parse(raw);
-    return {
-      description: typeof parsed.description === 'string' ? parsed.description.trim() : '',
-      artistDescription: typeof parsed.artistDescription === 'string' ? parsed.artistDescription.trim() : '',
-      venueDescription: typeof parsed.venueDescription === 'string' ? parsed.venueDescription.trim() : '',
-    };
+    const jsonStr = jsonMatch ? jsonMatch[0] : raw;
+    let parsed = {};
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      // Truncated or invalid JSON: extract plain text from "description":"..." so user never sees raw JSON
+      const extracted = unwrapDescriptionText(raw);
+      const fallback = (extracted && extracted.length > 10) ? extracted : (raw.length > 10 ? raw : '');
+      return fallback ? { description: fallback, artistDescription: '', venueDescription: '' } : null;
+    }
+    let desc = unwrapDescriptionText((parsed.description ?? parsed.Description ?? '').trim());
+    let artistDesc = unwrapDescriptionText((parsed.artistDescription ?? parsed.artist_description ?? '').trim());
+    let venueDesc = unwrapDescriptionText((parsed.venueDescription ?? parsed.venue_description ?? '').trim());
+    // Fallback: use any non-empty string from response (Gemini may use different keys)
+    let fallbackDesc = desc || artistDesc || venueDesc;
+    if (!fallbackDesc && typeof parsed === 'object') {
+      for (const [, v] of Object.entries(parsed)) {
+        if (typeof v === 'string' && v.trim().length > 10) {
+          fallbackDesc = v.trim();
+          break;
+        }
+      }
+    }
+    const outDesc = desc || fallbackDesc;
+    const outArtist = artistDesc || (fallbackDesc && !desc ? '' : '');
+    const outVenue = venueDesc || (fallbackDesc && !desc ? '' : '');
+    if (outDesc || outArtist || outVenue) {
+      return {
+        description: outDesc,
+        artistDescription: outArtist || artistDesc,
+        venueDescription: outVenue || venueDesc,
+      };
+    }
+    return null;
   } catch (e) {
     console.error('Gemini event-description fetch error:', e);
     return null;

@@ -21,11 +21,11 @@ export const Header: React.FC<HeaderProps> = ({
   hasActiveFilters = false,
   showTodayButton = true,
 }) => {
-  const { colors, mode, setMode, isDark } = useTheme();
+  const { colors, typography, mode, setMode, isDark } = useTheme();
   const { city } = useCity();
   const { cities } = useCities();
   const cityLabel = cities.find((c) => c.id === city)?.label ?? city;
-  const styles = createStyles(colors);
+  const styles = createStyles(colors, typography);
 
   const toggleTheme = () => {
     if (mode === 'light') {
@@ -118,7 +118,7 @@ export const Header: React.FC<HeaderProps> = ({
   );
 };
 
-const createStyles = (colors: any) => StyleSheet.create({
+const createStyles = (colors: any, typography: any) => StyleSheet.create({
   container: {
     backgroundColor: colors.background,
     paddingTop: Platform.OS === 'ios' ? 50 : 20,
@@ -142,10 +142,9 @@ const createStyles = (colors: any) => StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: typography.titleSize,
+    fontWeight: typography.titleWeight,
     color: colors.text,
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   colon: {
     color: colors.pink,

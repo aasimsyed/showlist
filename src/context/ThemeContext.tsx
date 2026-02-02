@@ -17,40 +17,68 @@ interface ThemeColors {
   grayBorder: string;
 }
 
+/** Typography scale aligned with showlistaustin.com editorial style */
+export interface ThemeTypography {
+  /** Page/section title (e.g. "Showlist: Austin") */
+  titleSize: number;
+  titleWeight: '700' | '600' | '400';
+  /** Date headers, card titles */
+  headingSize: number;
+  headingWeight: '700' | '600' | '400';
+  /** Body text */
+  bodySize: number;
+  bodyWeight: '400' | '500';
+  /** Secondary text, captions */
+  captionSize: number;
+  captionWeight: '400' | '500';
+}
+
 interface ThemeContextType {
   mode: ThemeMode;
   colors: ThemeColors;
+  typography: ThemeTypography;
   setMode: (mode: ThemeMode) => void;
   isDark: boolean;
 }
 
-// WCAG AA compliant colors
-// Light theme: All text meets 4.5:1 contrast on backgrounds
-// Dark theme: All text meets 4.5:1 contrast on backgrounds
-const lightColors: ThemeColors = {
-  background: '#FFFFFF',
-  text: '#000000', // 21:1 contrast on white (exceeds AA)
-  textSecondary: '#666666', // 5.7:1 contrast on white (meets AA)
-  border: '#CCCCCC', // Improved contrast for borders
-  cardBackground: '#FFFFFF',
-  pink: '#B8126F', // Darker pink - 5.1:1 on white (exceeds AA for all text sizes)
-  black: '#000000',
-  white: '#FFFFFF',
-  grayLight: '#E5E5E5',
-  grayBorder: '#CCCCCC', // Improved contrast
+const themeTypography: ThemeTypography = {
+  titleSize: 22,
+  titleWeight: '700',
+  headingSize: 17,
+  headingWeight: '600',
+  bodySize: 16,
+  bodyWeight: '400',
+  captionSize: 14,
+  captionWeight: '400',
 };
 
+// Theme aligned with showlistaustin.com: editorial list look, warm neutrals, single accent
+// Light: off-white background, near-black text, warm red accent (WCAG AA compliant)
+const lightColors: ThemeColors = {
+  background: '#faf9f7',
+  text: '#1a1a1a',
+  textSecondary: '#5c5c5c',
+  border: '#e0ddd8',
+  cardBackground: '#ffffff',
+  pink: '#b91c1c', // Warm red accent (links, buttons, selected) – 5.5:1 on #faf9f7
+  black: '#1a1a1a',
+  white: '#ffffff',
+  grayLight: '#e8e6e3',
+  grayBorder: '#e0ddd8',
+};
+
+// Dark: dark gray background, light text, brighter red accent
 const darkColors: ThemeColors = {
-  background: '#121212',
-  text: '#FFFFFF', // 19.6:1 contrast on dark (exceeds AA)
-  textSecondary: '#B0B0B0', // 4.8:1 contrast on dark (meets AA)
-  border: '#444444', // Improved contrast for borders
-  cardBackground: '#1E1E1E',
-  pink: '#FF7FBF', // Lighter pink - 4.6:1 on dark (exceeds AA for large text, meets UI requirements)
-  black: '#FFFFFF',
-  white: '#121212',
-  grayLight: '#2A2A2A',
-  grayBorder: '#444444', // Improved contrast
+  background: '#1a1a1a',
+  text: '#f5f5f0',
+  textSecondary: '#a3a3a0',
+  border: '#3f3f3f',
+  cardBackground: '#262626',
+  pink: '#ef4444', // Brighter red for contrast on dark
+  black: '#f5f5f0',
+  white: '#1a1a1a',
+  grayLight: '#2a2a2a',
+  grayBorder: '#3f3f3f',
 };
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -96,7 +124,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const colors = isDark ? darkColors : lightColors;
 
   return (
-    <ThemeContext.Provider value={{ mode, colors, setMode, isDark }}>
+    <ThemeContext.Provider value={{ mode, colors, typography: themeTypography, setMode, isDark }}>
       {children}
     </ThemeContext.Provider>
   );
