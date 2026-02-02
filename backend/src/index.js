@@ -79,7 +79,7 @@ export default {
         if (cached) {
           return new Response(cached.body, { headers: cached.headers });
         }
-        let result = { artistDescription: '', venueDescription: '' };
+        let result = { description: '', artistDescription: '', venueDescription: '' };
         if (env.GEMINI_API_KEY) {
           const geminiResult = await fetchEventDescription(artistName, venueName, env.GEMINI_API_KEY);
           if (geminiResult) result = geminiResult;
@@ -260,16 +260,16 @@ Rules: genres = 2-4 music genres or styles (e.g. rock, indie, soul, jazz). mood 
 }
 
 /**
- * Call Google Gemini for event detail: short descriptions of artist and venue.
- * Returns { artistDescription: string, venueDescription: string } or null.
+ * Call Google Gemini for a full event description (artist + venue together).
+ * Returns { description: string, artistDescription?: string, venueDescription?: string } or null.
  */
 async function fetchEventDescription(artistName, venueName, apiKey) {
-  const prompt = `You are helping a live-music app. For a user viewing an event: "${artistName}" at "${venueName}".
+  const prompt = `You are helping a live-music app. A user is viewing an event: "${artistName}" at "${venueName}".
 
-Respond with ONLY valid JSON (no markdown, no code block, no other text). Use this exact structure:
-{"artistDescription":"2-3 sentences about the music artist: style, vibe, what to expect at a live show.","venueDescription":"1-2 sentences about the venue: atmosphere, typical crowd, what makes it notable."}
+Write a short, engaging event description for someone deciding whether to go. Respond with ONLY valid JSON (no markdown, no code block, no other text). Use this exact structure:
+{"description":"One cohesive paragraph (3-5 sentences) that describes this show: who the artist is, their sound or vibe, what to expect at a live set, and what the venue is like—atmosphere, crowd, why it's a good spot for this show. Write in a friendly, informative tone.","artistDescription":"2-3 sentences focused only on the artist: style, vibe, what to expect live.","venueDescription":"1-2 sentences focused only on the venue: atmosphere, typical crowd, what makes it notable."}
 
-Keep descriptions concise and useful for someone deciding whether to go. If the artist or venue is obscure or unknown, give a brief generic line rather than inventing facts.`;
+If the artist or venue is obscure or unknown, give a brief, honest line rather than inventing facts. Keep everything concise and useful.`;
 
   try {
     const res = await fetch(
@@ -279,7 +279,7 @@ Keep descriptions concise and useful for someone deciding whether to go. If the 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 512, responseMimeType: 'application/json' },
+          generationConfig: { temperature: 0.3, maxOutputTokens: 768, responseMimeType: 'application/json' },
         }),
       }
     );
@@ -293,6 +293,7 @@ Keep descriptions concise and useful for someone deciding whether to go. If the 
     const raw = text.replace(/^```\w*\n?|\n?```$/g, '').trim();
     const parsed = JSON.parse(raw);
     return {
+      description: typeof parsed.description === 'string' ? parsed.description : '',
       artistDescription: typeof parsed.artistDescription === 'string' ? parsed.artistDescription : '',
       venueDescription: typeof parsed.venueDescription === 'string' ? parsed.venueDescription : '',
     };

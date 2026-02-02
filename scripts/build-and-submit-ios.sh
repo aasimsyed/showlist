@@ -66,7 +66,11 @@ echo "[2/7] Running expo prebuild..."
 cd "$PROJECT_DIR"
 npx expo prebuild --platform ios --clean
 
-# Step 2: Pod install
+# Step 2b: Ensure 1024x1024 app icon in xcassets (so App Store Connect shows icon under Apps)
+echo "[2b/7] Ensuring App Store icon (1024x1024) in asset catalog..."
+node "$PROJECT_DIR/scripts/ensure-app-icon-1024.js"
+
+# Step 3: Pod install
 echo "[3/7] Installing CocoaPods dependencies..."
 cd "$IOS_DIR"
 pod install

@@ -22,6 +22,8 @@ export interface ArtistGenreInfo {
 }
 
 export interface EventDescriptionResponse {
+  /** Full event description (artist + venue together). */
+  description?: string;
   artistDescription: string;
   venueDescription: string;
 }
@@ -113,6 +115,7 @@ class ApiService {
       const url = `${API_ENDPOINTS.EVENT_DESCRIPTION}?artist=${encodeURIComponent(artist)}&venue=${encodeURIComponent(venue)}`;
       const response = await this.client.get<EventDescriptionResponse>(url);
       return {
+        description: response.data?.description ?? '',
         artistDescription: response.data?.artistDescription ?? '',
         venueDescription: response.data?.venueDescription ?? '',
       };

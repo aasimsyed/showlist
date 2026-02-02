@@ -47,6 +47,8 @@ export const EventDetailModal: React.FC = () => {
   const { colors } = useTheme();
   const { show, eventDate, eventsForSuggestions, setSelected, clearSelected } = useEventDetail();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [fullDescription, setFullDescription] = useState('');
   const [artistDescription, setArtistDescription] = useState('');
   const [venueDescription, setVenueDescription] = useState('');
 
@@ -55,15 +57,23 @@ export const EventDetailModal: React.FC = () => {
   useEffect(() => {
     if (!show) return;
     setLoading(true);
+    setLoadError(false);
+    setFullDescription('');
     setArtistDescription('');
     setVenueDescription('');
     apiService
       .fetchEventDescription(show.artist, show.venue)
       .then((res) => {
-        setArtistDescription(res.artistDescription);
-        setVenueDescription(res.venueDescription);
+        if (res.description?.trim()) {
+          setFullDescription(res.description.trim());
+        } else if (res.artistDescription || res.venueDescription) {
+          const parts = [res.artistDescription, res.venueDescription].filter(Boolean);
+          setFullDescription(parts.join(' '));
+        }
+        setArtistDescription(res.artistDescription ?? '');
+        setVenueDescription(res.venueDescription ?? '');
       })
-      .catch(() => {})
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, [show?.artist, show?.venue]);
 
@@ -105,29 +115,43 @@ export const EventDetailModal: React.FC = () => {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          <Text style={styles.sectionTitle}>Event description</Text>
           {loading ? (
             <View style={styles.loadingBox}>
               <ActivityIndicator size="large" color={colors.pink} />
-              <Text style={styles.loadingText}>Loading description…</Text>
+              <Text style={styles.loadingText}>Loading event description…</Text>
             </View>
+          ) : loadError ? (
+            <Text style={styles.bodyMuted}>Description couldn't be loaded. Check your connection and try again.</Text>
+          ) : fullDescription ? (
+            <Text style={styles.body}>{fullDescription}</Text>
           ) : (
-            <>
-              {artistDescription ? (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>About the artist</Text>
-                  <Text style={styles.body}>{artistDescription}</Text>
-                </View>
-              ) : null}
-              {venueDescription ? (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>About the venue</Text>
-                  <Text style={styles.body}>{venueDescription}</Text>
-                </View>
-              ) : null}
-              {!artistDescription && !venueDescription && !loading && (
-                <Text style={styles.body}>No description available for this event.</Text>
+            <Text style={styles.bodyMuted}>No description available for this event.</Text>
+          )}
+
+          {(show.eventLink || show.mapLink) && (
+            <View style={[styles.actions, { marginTop: 20 }]}>
+              {show.eventLink && (
+                <TouchableOpacity
+                  style={styles.linkButton}
+                  onPress={() => Linking.openURL(show.eventLink)}
+                  accessibilityLabel="Open event link"
+                  accessibilityRole="link"
+                >
+                  <Text style={styles.linkButtonText}>Event / tickets</Text>
+                </TouchableOpacity>
               )}
-            </>
+              {show.mapLink && (
+                <TouchableOpacity
+                  style={styles.linkButton}
+                  onPress={() => Linking.openURL(show.mapLink!)}
+                  accessibilityLabel="Open map"
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.linkButtonText}>📍 Map</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           )}
 
           {suggestions.length > 0 && (
@@ -153,31 +177,6 @@ export const EventDetailModal: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
               ))}
-            </View>
-          )}
-
-          {(show.eventLink || show.mapLink) && (
-            <View style={styles.actions}>
-              {show.eventLink && (
-                <TouchableOpacity
-                  style={styles.linkButton}
-                  onPress={() => Linking.openURL(show.eventLink)}
-                  accessibilityLabel="Open event link"
-                  accessibilityRole="link"
-                >
-                  <Text style={styles.linkButtonText}>Event / tickets</Text>
-                </TouchableOpacity>
-              )}
-              {show.mapLink && (
-                <TouchableOpacity
-                  style={styles.linkButton}
-                  onPress={() => Linking.openURL(show.mapLink!)}
-                  accessibilityLabel="Open map"
-                  accessibilityRole="button"
-                >
-                  <Text style={styles.linkButtonText}>📍 Map</Text>
-                </TouchableOpacity>
-              )}
             </View>
           )}
         </ScrollView>
@@ -255,6 +254,12 @@ const createStyles = (colors: any) =>
       fontSize: 15,
       lineHeight: 22,
       color: colors.text,
+    },
+    bodyMuted: {
+      fontSize: 15,
+      lineHeight: 22,
+      color: colors.textSecondary,
+      fontStyle: 'italic',
     },
     suggestionRow: {
       paddingVertical: 12,
