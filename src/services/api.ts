@@ -12,6 +12,15 @@ export interface CitiesResponse {
   lastUpdated: string;
 }
 
+export interface ArtistGenreInfo {
+  artist: string;
+  genres: string[];
+  source: 'musicbrainz' | 'gemini';
+  mood?: string;
+  energy?: number;
+  similarTo?: string[];
+}
+
 class ApiService {
   private client: AxiosInstance;
 
@@ -69,6 +78,25 @@ class ApiService {
         throw new Error(`API Error: ${error.response.status}`);
       }
       throw error;
+    }
+  }
+
+  /**
+   * Fetch artist genre/mood/energy from backend (MusicBrainz + Gemini fallback). Caching is done by the caller.
+   */
+  async fetchArtistGenre(artistName: string): Promise<ArtistGenreInfo> {
+    try {
+      const url = `${API_ENDPOINTS.ARTIST_GENRE}?artist=${encodeURIComponent(artistName)}`;
+      const response = await this.client.get<ArtistGenreInfo>(url);
+      if (!response.data || !Array.isArray(response.data.genres)) {
+        return { artist: artistName, genres: [], source: 'musicbrainz' };
+      }
+      return response.data;
+    } catch (error: any) {
+      if (error.response) {
+        console.warn('Artist genre API error:', error.response.status);
+      }
+      return { artist: artistName, genres: [], source: 'musicbrainz' };
     }
   }
 

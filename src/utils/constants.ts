@@ -5,6 +5,7 @@ export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://showlist
 export const API_ENDPOINTS = {
   EVENTS: '/api/events',
   CITIES: '/api/cities',
+  ARTIST_GENRE: '/api/artist-genre',
 };
 
 /** Fallback when /api/cities fails (e.g. offline). */
@@ -19,6 +20,9 @@ export const DEFAULT_CITY: ShowlistCityId = 'austin';
 export const CITIES_CACHE_KEY = 'cached_cities';
 export const CITIES_CACHE_TIMESTAMP_KEY = 'cached_cities_ts';
 export const CITIES_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+export const ARTIST_GENRE_CACHE_KEY_PREFIX = 'artist_genre_';
+export const ARTIST_GENRE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export const CITY_STORAGE_KEY = 'selected_city';
 

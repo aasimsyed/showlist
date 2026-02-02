@@ -1,7 +1,40 @@
 import { Show, EventDay } from '../types';
 import { getUserProfile, UserProfile } from './userBehaviorTracker';
 import { mlService } from '../services/mlService';
+import { getArtistGenre } from '../services/artistGenreService';
 import { generateExplanation, RecommendationExplanation } from './explanationGenerator';
+
+const MAX_ARTISTS_FOR_GENRE_PROFILE = 20;
+
+/** Build user genre counts from favorited artists (cached lookups). */
+export async function buildUserGenreProfile(favorites: Show[]): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  const uniqueArtists = [...new Set(favorites.map((s) => s.artist))].slice(0, MAX_ARTISTS_FOR_GENRE_PROFILE);
+  for (const artist of uniqueArtists) {
+    try {
+      const info = await getArtistGenre(artist);
+      for (const g of info.genres || []) {
+        const genre = g.trim().toLowerCase();
+        if (genre) counts[genre] = (counts[genre] || 0) + 1;
+      }
+    } catch (_) {
+      // skip failed lookups
+    }
+  }
+  return counts;
+}
+
+/** Jaccard-like overlap: share of show genres that user likes (0–1). */
+export function genreMatchScore(userGenreCounts: Record<string, number>, showGenres: string[]): number {
+  if (showGenres.length === 0 || Object.keys(userGenreCounts).length === 0) return 0;
+  const userSet = new Set(Object.keys(userGenreCounts));
+  let matches = 0;
+  for (const g of showGenres) {
+    const genre = g.trim().toLowerCase();
+    if (userSet.has(genre)) matches++;
+  }
+  return matches / Math.max(showGenres.length, 1);
+}
 
 export interface MLRecommendationScore {
   show: Show;
@@ -80,28 +113,20 @@ export async function getMLRecommendations(
   const profile = await getUserProfile();
   
   if (!profile || profile.totalInteractions < 3) {
-    // Not enough data for recommendations
     return [];
   }
 
   const scores: MLRecommendationScore[] = [];
   const favoriteKeys = new Set(favorites.map(s => `${s.artist}|${s.venue}|${s.time || ''}`));
-
-  // Convert profile to ML features
   const userFeatures = convertProfileToFeatures(profile);
+  const userGenreProfile = await buildUserGenreProfile(favorites);
 
-  // Score all upcoming events
   for (const day of events) {
     for (const show of day.shows) {
       const showKey = `${show.artist}|${show.venue}|${show.time || ''}`;
-      
-      // Skip if already favorited
       if (favoriteKeys.has(showKey)) continue;
 
-      // Convert show to ML features
       const eventFeatures = convertShowToFeatures(show);
-
-      // Get ML prediction
       let mlScore = 0;
       try {
         mlScore = await mlService.predictScore(userFeatures, eventFeatures);
@@ -109,21 +134,35 @@ export async function getMLRecommendations(
         console.error('Error getting ML score:', error);
       }
 
-      // Generate explanation
-      const explanation = generateExplanation(show, profile, mlScore, day.date);
+      let artistGenreInfo = { artist: show.artist, genres: [] as string[], source: 'musicbrainz' as const };
+      try {
+        artistGenreInfo = await getArtistGenre(show.artist);
+      } catch (_) {
+        // use empty genres
+      }
+      const genreMatch = genreMatchScore(userGenreProfile, artistGenreInfo.genres);
 
-      // Calculate final score (combine ML with rule-based)
+      const explanation = generateExplanation(
+        show,
+        profile,
+        mlScore,
+        day.date,
+        genreMatch > 0 ? artistGenreInfo.genres : undefined,
+        Object.keys(userGenreProfile).length > 0 ? userGenreProfile : undefined
+      );
+
       const artistCount = profile.favoriteArtists[show.artist] || 0;
       const venueCount = profile.favoriteVenues[show.venue] || 0;
-      
       let ruleBasedScore = 0;
       ruleBasedScore += Math.min(artistCount * 20, 40);
       ruleBasedScore += Math.min(venueCount * 15, 30);
-      
-      // Combine: 60% rule-based, 40% ML
-      const finalScore = (ruleBasedScore * 0.6) + (mlScore * 100 * 0.4);
 
-      // Only include if score is above threshold
+      // Combine: 50% rule-based, 30% ML, 20% genre match
+      const finalScore =
+        ruleBasedScore * 0.5 +
+        mlScore * 100 * 0.3 +
+        genreMatch * 100 * 0.2;
+
       if (finalScore > 20 || explanation.reasons.length > 0) {
         scores.push({
           show,

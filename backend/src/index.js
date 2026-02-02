@@ -30,6 +30,38 @@ export default {
       const url = new URL(request.url);
       const pathname = url.pathname || '';
 
+      // GET /api/artist-genre?artist=...: MusicBrainz + Gemini fallback for artist genres (cached)
+      if (pathname.includes('artist-genre')) {
+        const artistParam = url.searchParams.get('artist');
+        if (!artistParam || !artistParam.trim()) {
+          return new Response(
+            JSON.stringify({ error: 'Missing query parameter: artist' }),
+            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          );
+        }
+        const artistName = artistParam.trim();
+        const cacheRequest = new Request(url.toString(), { method: 'GET' });
+        const cached = await caches.default.match(cacheRequest);
+        if (cached) {
+          return new Response(cached.body, { headers: cached.headers });
+        }
+        let result = await fetchMusicBrainzTags(artistName);
+        if ((!result.genres || result.genres.length === 0) && env.GEMINI_API_KEY) {
+          const geminiResult = await fetchGeminiArtistInfo(artistName, env.GEMINI_API_KEY);
+          if (geminiResult) result = geminiResult;
+        }
+        const body = JSON.stringify(result);
+        const response = new Response(body, {
+          headers: {
+            ...CORS_HEADERS,
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=604800',
+          },
+        });
+        await caches.default.put(cacheRequest, response.clone());
+        return response;
+      }
+
       // GET /api/cities: scrape https://www.showlists.net/ for city links
       if (pathname.includes('cities')) {
         const networkRes = await fetch('https://www.showlists.net/', {
@@ -115,6 +147,83 @@ export default {
     }
   },
 };
+
+const MB_USER_AGENT = 'ShowlistApp/1.0 (https://showlists.net)';
+
+/**
+ * Fetch artist tags (genres) from MusicBrainz. Returns { artist, genres: string[], source: 'musicbrainz' }.
+ * Rate limit: 1 req/sec - we do one search + one artist lookup per request.
+ */
+async function fetchMusicBrainzTags(artistName) {
+  const out = { artist: artistName, genres: [], source: 'musicbrainz' };
+  try {
+    const searchUrl = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(artistName)}&fmt=json&limit=1`;
+    const searchRes = await fetch(searchUrl, { headers: { 'User-Agent': MB_USER_AGENT } });
+    if (!searchRes.ok) return out;
+    const searchData = await searchRes.json();
+    const artists = searchData.artists;
+    if (!artists || artists.length === 0) return out;
+    const mbid = artists[0].id;
+    const artistUrl = `https://musicbrainz.org/ws/2/artist/${mbid}?inc=tags&fmt=json`;
+    const artistRes = await fetch(artistUrl, { headers: { 'User-Agent': MB_USER_AGENT } });
+    if (!artistRes.ok) return out;
+    const artistData = await artistRes.json();
+    const tags = artistData.tags || [];
+    const filtered = tags
+      .filter((t) => t.name && !/seen live|favorites?|to see|various|unknown/i.test(t.name))
+      .sort((a, b) => (b.count || 0) - (a.count || 0))
+      .slice(0, 8)
+      .map((t) => t.name.trim());
+    out.genres = filtered;
+  } catch (e) {
+    console.error('MusicBrainz fetch error:', e);
+  }
+  return out;
+}
+
+/**
+ * Call Google Gemini for artist genre/mood/energy. Returns { artist, genres, mood, energy, similarTo, source: 'gemini' } or null.
+ * Uses a rich prompt to improve recommendations: genres, mood, energy 1-5, similar artists.
+ */
+async function fetchGeminiArtistInfo(artistName, apiKey) {
+  const prompt = `You are helping a live-music recommendation app. For the artist "${artistName}", respond with ONLY valid JSON (no markdown, no code block, no other text). Use this exact structure:
+{"genres":["genre1","genre2","genre3"],"mood":"one word","energy":3,"similarTo":["Similar Artist 1","Similar Artist 2"]}
+Rules: genres = 2-4 music genres or styles (e.g. rock, indie, soul, jazz). mood = one of: chill, upbeat, intense, romantic, party, contemplative, other. energy = number 1-5 (1=low/quiet, 5=high/intense). similarTo = 0-2 similar artist names. If the artist is unknown or not music, set genres to [] and mood to "other".`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 256, responseMimeType: 'application/json' },
+        }),
+      }
+    );
+    if (!res.ok) {
+      console.error('Gemini API error:', res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) return null;
+    const raw = text.replace(/^```\w*\n?|\n?```$/g, '').trim();
+    const parsed = JSON.parse(raw);
+    return {
+      artist: artistName,
+      genres: Array.isArray(parsed.genres) ? parsed.genres.slice(0, 6) : [],
+      mood: typeof parsed.mood === 'string' ? parsed.mood : 'other',
+      energy: typeof parsed.energy === 'number' && parsed.energy >= 1 && parsed.energy <= 5 ? parsed.energy : 3,
+      similarTo: Array.isArray(parsed.similarTo) ? parsed.similarTo.slice(0, 2) : [],
+      source: 'gemini',
+    };
+  } catch (e) {
+    console.error('Gemini fetch error:', e);
+    return null;
+  }
+}
 
 /**
  * Parse https://www.showlists.net/ HTML for city links (e.g. Cities dropdown).

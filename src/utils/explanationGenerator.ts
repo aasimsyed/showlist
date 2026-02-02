@@ -34,11 +34,26 @@ export function generateExplanation(
   show: Show,
   profile: UserProfile,
   mlScore: number,
-  eventDate?: string
+  eventDate?: string,
+  showGenres?: string[],
+  userGenreProfile?: Record<string, number>
 ): RecommendationExplanation {
   const reasons: string[] = [];
   let score = 0;
   const maxScore = 100;
+
+  // 0. Genre match (when we have artist genre data)
+  if (showGenres?.length && userGenreProfile && Object.keys(userGenreProfile).length > 0) {
+    const userGenres = new Set(Object.keys(userGenreProfile).map((g) => g.toLowerCase()));
+    const overlap = showGenres
+      .map((g) => g.trim().toLowerCase())
+      .filter((g) => g && userGenres.has(g));
+    if (overlap.length > 0) {
+      const genreLabel = overlap.length <= 2 ? overlap.join(', ') : `${overlap[0]}, ${overlap[1]}, and more`;
+      reasons.push(`Matches your taste for ${genreLabel}`);
+      score += 15;
+    }
+  }
 
   // 1. Artist match (40% weight)
   const artistCount = profile.favoriteArtists[show.artist] || 0;

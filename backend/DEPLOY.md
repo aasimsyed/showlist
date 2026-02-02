@@ -48,15 +48,27 @@ export const API_BASE_URL = 'https://showlist-proxy.YOUR-ACCOUNT.workers.dev';
 
 Replace `YOUR-ACCOUNT` with your actual subdomain from step 3.
 
-### 5. Test the API
+### 5. (Optional) Set Gemini API key for artist-genre fallback
+
+The `/api/artist-genre?artist=...` endpoint uses MusicBrainz first, then **Google Gemini** when no tags are found. To enable Gemini:
+
+```bash
+cd backend
+npx wrangler secret put GEMINI_API_KEY
+```
+
+Paste your Gemini API key when prompted. **Do not commit the key to the repo.** If the secret is not set, the endpoint still works using only MusicBrainz.
+
+### 6. Test the API
 
 You can test the worker directly in your browser:
 
 ```
 https://showlist-proxy.YOUR-ACCOUNT.workers.dev/api/events
+https://showlist-proxy.YOUR-ACCOUNT.workers.dev/api/artist-genre?artist=Black%20Pumas
 ```
 
-You should see JSON data with events.
+You should see JSON data (events, or artist genres/mood/energy).
 
 ## Development Mode
 
