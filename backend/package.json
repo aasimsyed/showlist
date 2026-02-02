@@ -4,7 +4,7 @@
   "description": "Cloudflare Worker to proxy and parse austin.showlists.net",
   "main": "src/index.js",
   "scripts": {
-    "deploy": "wrangler publish",
+    "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },
   "keywords": [],

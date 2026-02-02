@@ -19,7 +19,7 @@ This will open your browser to authenticate with Cloudflare. Click "Allow" to au
 ### 2. Deploy the Worker
 
 ```bash
-npx wrangler publish
+npx wrangler deploy
 ```
 
 Or use the npm script:
@@ -92,7 +92,7 @@ This starts a local server (usually at `http://localhost:8787`).
 After making changes to `src/index.js`:
 
 ```bash
-npx wrangler publish
+npx wrangler deploy
 ```
 
 The update will be live within seconds.

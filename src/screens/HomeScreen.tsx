@@ -34,13 +34,18 @@ export const HomeScreen: React.FC = () => {
   const [cityModalVisible, setCityModalVisible] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Reset day index when city changes (saved index loads in next effect when events update)
+  const hasLoadedInitialDayIndexRef = useRef(false);
+
+  // Reset day index and load flag when city changes
   React.useEffect(() => {
     setCurrentDayIndex(0);
+    hasLoadedInitialDayIndexRef.current = false;
   }, [city]);
 
-  // Load saved day index from cache (city-scoped)
+  // Load saved day index from cache only once when events first become available (avoids overwriting user selection)
   React.useEffect(() => {
+    if (events.length === 0 || hasLoadedInitialDayIndexRef.current) return;
+
     const loadSavedIndex = async () => {
       try {
         const savedIndex = await AsyncStorage.getItem(cacheKeys.CURRENT_DAY_INDEX);
@@ -52,12 +57,12 @@ export const HomeScreen: React.FC = () => {
         }
       } catch (err) {
         console.error('Error loading saved day index:', err);
+      } finally {
+        hasLoadedInitialDayIndexRef.current = true;
       }
     };
 
-    if (events.length > 0) {
-      loadSavedIndex();
-    }
+    loadSavedIndex();
   }, [events.length, cacheKeys.CURRENT_DAY_INDEX]);
 
   // Save day index to cache (city-scoped)
@@ -119,6 +124,11 @@ export const HomeScreen: React.FC = () => {
       saveDayIndex(newIndex);
     }
   }, [currentDayIndex, events.length, saveDayIndex]);
+
+  const handleDaySelect = useCallback((index: number) => {
+    setCurrentDayIndex(index);
+    saveDayIndex(index);
+  }, [saveDayIndex]);
 
   // Jump to today
   const handleJumpToToday = useCallback(() => {
@@ -187,6 +197,9 @@ export const HomeScreen: React.FC = () => {
           onFiltersPress={handleFiltersPress}
           onRefreshPress={refresh}
           onCityPress={handleCityPress}
+          onToday={handleJumpToToday}
+          showTodayButton={false}
+          hasActiveFilters={hasActiveFilters(filters)}
         />
         <View style={styles.errorContainer}>
           <LoadingState message={`Error: ${error}`} />
@@ -203,6 +216,9 @@ export const HomeScreen: React.FC = () => {
           onFiltersPress={handleFiltersPress}
           onRefreshPress={refresh}
           onCityPress={handleCityPress}
+          onToday={handleJumpToToday}
+          showTodayButton={false}
+          hasActiveFilters={hasActiveFilters(filters)}
         />
         <LoadingState />
       </SafeAreaView>
@@ -219,16 +235,17 @@ export const HomeScreen: React.FC = () => {
         onFiltersPress={handleFiltersPress}
         onRefreshPress={refresh}
         onCityPress={handleCityPress}
+        onToday={handleJumpToToday}
+        showTodayButton={events.length > 0}
         hasActiveFilters={hasActiveFilters(filters)}
       />
-      
+
       <DateNavigation
-        date={currentDay?.date || 'No date'}
+        events={events}
         currentIndex={currentDayIndex}
-        totalDays={events.length}
         onPrevious={handlePrevious}
         onNext={handleNext}
-        onToday={handleJumpToToday}
+        onDaySelect={handleDaySelect}
         canGoPrevious={canGoPrevious}
         canGoNext={canGoNext}
       />

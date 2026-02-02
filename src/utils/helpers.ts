@@ -65,3 +65,26 @@ export function filterShows(shows: any[], query: string): any[] {
 export function getDayCounter(currentIndex: number, totalDays: number): string {
   return `Day ${currentIndex + 1} of ${totalDays}`;
 }
+
+const SHORT_DATE_FORMATS = ['EEEE, MMMM do yyyy', 'EEEE, MMMM d, yyyy', 'yyyy-MM-dd'];
+
+/**
+ * Short date for date strip pill, e.g. "Sat 2/1"
+ */
+export function formatShortDate(dateString: string): string {
+  if (!dateString) return '';
+  for (const fmt of SHORT_DATE_FORMATS) {
+    try {
+      const date = parse(dateString, fmt, new Date());
+      if (isValid(date)) return format(date, 'EEE M/d');
+    } catch {
+      /* try next */
+    }
+  }
+  try {
+    const d = new Date(dateString);
+    return isValid(d) ? format(d, 'EEE M/d') : dateString;
+  } catch {
+    return dateString;
+  }
+}

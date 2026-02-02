@@ -2,7 +2,7 @@
   "expo": {
     "name": "Showlist Austin",
     "slug": "showlist-austin",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.showlist.austin",
-      "buildNumber": "13",
+      "buildNumber": "14",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app uses location to show nearby music venues.",
         "NSCalendarsUsageDescription": "This app uses your calendar to add events.",

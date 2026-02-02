@@ -8,14 +8,18 @@ interface HeaderProps {
   onFiltersPress: () => void;
   onRefreshPress: () => void;
   onCityPress?: () => void;
+  onToday?: () => void;
   hasActiveFilters?: boolean;
+  showTodayButton?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onFiltersPress,
   onRefreshPress,
   onCityPress,
+  onToday,
   hasActiveFilters = false,
+  showTodayButton = true,
 }) => {
   const { colors, mode, setMode, isDark } = useTheme();
   const { city } = useCity();
@@ -66,7 +70,6 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Text style={styles.themeIcon}>{isDark ? '☀️' : '🌙'}</Text>
           </TouchableOpacity>
-          
           <TouchableOpacity
             style={styles.refreshButton}
             onPress={onRefreshPress}
@@ -76,7 +79,11 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Text style={styles.refreshIcon}>↻</Text>
           </TouchableOpacity>
-          
+        </View>
+      </View>
+
+      {(onFiltersPress || (showTodayButton && onToday)) && (
+        <View style={styles.toolbar}>
           <TouchableOpacity
             style={[
               styles.filtersButton,
@@ -92,9 +99,20 @@ export const Header: React.FC<HeaderProps> = ({
               Filters {hasActiveFilters ? '●' : '+'}
             </Text>
           </TouchableOpacity>
+          {showTodayButton && onToday && (
+            <TouchableOpacity
+              style={styles.todayButton}
+              onPress={onToday}
+              accessibilityLabel="Jump to today"
+              accessibilityRole="button"
+              accessibilityHint="Double tap to jump to today's events"
+            >
+              <Text style={styles.todayButtonText}>Today</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      </View>
-      
+      )}
+
       <View style={styles.border} />
     </View>
   );
@@ -163,18 +181,37 @@ const createStyles = (colors: any) => StyleSheet.create({
     fontSize: 20,
     color: colors.text,
   },
+  toolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 10,
+  },
   filtersButton: {
     backgroundColor: colors.text,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    minHeight: 44,
+    minHeight: 40,
     justifyContent: 'center',
   },
   filtersButtonActive: {
     backgroundColor: colors.pink,
   },
   filtersText: {
+    color: colors.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  todayButton: {
+    backgroundColor: colors.pink,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  todayButtonText: {
     color: colors.white,
     fontSize: 14,
     fontWeight: '600',
