@@ -21,6 +21,11 @@ export interface ArtistGenreInfo {
   similarTo?: string[];
 }
 
+export interface EventDescriptionResponse {
+  artistDescription: string;
+  venueDescription: string;
+}
+
 class ApiService {
   private client: AxiosInstance;
 
@@ -97,6 +102,23 @@ class ApiService {
         console.warn('Artist genre API error:', error.response.status);
       }
       return { artist: artistName, genres: [], source: 'musicbrainz' };
+    }
+  }
+
+  /**
+   * Fetch Gemini-generated artist + venue description for an event (cached on backend).
+   */
+  async fetchEventDescription(artist: string, venue: string): Promise<EventDescriptionResponse> {
+    try {
+      const url = `${API_ENDPOINTS.EVENT_DESCRIPTION}?artist=${encodeURIComponent(artist)}&venue=${encodeURIComponent(venue)}`;
+      const response = await this.client.get<EventDescriptionResponse>(url);
+      return {
+        artistDescription: response.data?.artistDescription ?? '',
+        venueDescription: response.data?.venueDescription ?? '',
+      };
+    } catch (error: any) {
+      if (error.response) console.warn('Event description API error:', error.response.status);
+      return { artistDescription: '', venueDescription: '' };
     }
   }
 

@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRecommendationsContext } from '../context/RecommendationsContext';
 import { useEvents } from '../hooks/useEvents';
+import { useEventDetail } from '../context/EventDetailContext';
 import { ShowCard } from '../components/ShowCard';
 import { useTheme } from '../context/ThemeContext';
 import { MLRecommendationBadge } from '../components/MLRecommendationBadge';
@@ -18,7 +19,8 @@ import { useFavorites } from '../context/FavoritesContext';
 export const ForYouScreen: React.FC = () => {
   const { colors } = useTheme();
   const { recommendations, loading } = useRecommendationsContext();
-  const { refresh, isRefreshing } = useEvents();
+  const { events, refresh, isRefreshing } = useEvents();
+  const { setSelected: setEventDetail } = useEventDetail();
   const { favorites } = useFavorites();
   const styles = createStyles(colors);
 
@@ -29,6 +31,7 @@ export const ForYouScreen: React.FC = () => {
           show={item.show} 
           eventDate={item.eventDate}
           showFavoriteButton={true}
+          onShowPress={(show, eventDate) => setEventDetail(show, eventDate ?? null, events)}
         />
         <View style={styles.badgeContainer}>
           <MLRecommendationBadge explanation={item.explanation} />

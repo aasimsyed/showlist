@@ -28,6 +28,7 @@ interface EventListProps {
   refreshing?: boolean;
   onRefresh?: () => void;
   filters?: FilterState;
+  onShowPress?: (show: Show, eventDate?: string) => void;
 }
 
 export const EventList: React.FC<EventListProps> = ({
@@ -41,6 +42,7 @@ export const EventList: React.FC<EventListProps> = ({
   refreshing = false,
   onRefresh,
   filters,
+  onShowPress,
 }) => {
   const currentDay = events[currentDayIndex];
   const filteredShows = useMemo(() => {
@@ -62,6 +64,7 @@ export const EventList: React.FC<EventListProps> = ({
       <ShowCard 
         show={item} 
         eventDate={currentDay?.date}
+        onShowPress={onShowPress}
         accessibilityLabel={`Event: ${item.artist} at ${item.venue}${item.time ? ` at ${item.time}` : ''}`}
       />
     );

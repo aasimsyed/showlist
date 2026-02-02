@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFavorites } from '../context/FavoritesContext';
+import { useEventDetail } from '../context/EventDetailContext';
+import { useEvents } from '../hooks/useEvents';
 import { useTheme } from '../context/ThemeContext';
 import { ShowCard } from '../components/ShowCard';
 import { filterShows } from '../utils/helpers';
@@ -18,6 +20,8 @@ import { Show } from '../types';
 export const MyEventsScreen: React.FC = () => {
   const { colors } = useTheme();
   const { favorites, loading, removeFavorite, clearFavorites } = useFavorites();
+  const { events } = useEvents();
+  const { setSelected: setEventDetail } = useEventDetail();
   const [searchQuery, setSearchQuery] = useState('');
   const styles = createStyles(colors);
 
@@ -35,7 +39,11 @@ export const MyEventsScreen: React.FC = () => {
   const renderShow = ({ item }: { item: Show }) => {
     return (
       <View>
-        <ShowCard show={item} showFavoriteButton={false} />
+        <ShowCard
+          show={item}
+          showFavoriteButton={false}
+          onShowPress={(show) => setEventDetail(show, null, events)}
+        />
         <TouchableOpacity
           style={styles.removeButton}
           onPress={() => handleRemoveFavorite(item)}

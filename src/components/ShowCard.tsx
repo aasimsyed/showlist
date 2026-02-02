@@ -18,6 +18,7 @@ interface ShowCardProps {
   showFavoriteButton?: boolean;
   eventDate?: string; // Date string like "Saturday, January 24th 2026"
   accessibilityLabel?: string; // Optional custom accessibility label
+  onShowPress?: (show: Show, eventDate?: string) => void; // Tap row to open event detail
 }
 
 export const ShowCard: React.FC<ShowCardProps> = ({ 
@@ -25,6 +26,7 @@ export const ShowCard: React.FC<ShowCardProps> = ({
   showFavoriteButton = true,
   eventDate,
   accessibilityLabel,
+  onShowPress,
 }) => {
   const { colors } = useTheme();
   const { city } = useCity();
@@ -129,12 +131,12 @@ export const ShowCard: React.FC<ShowCardProps> = ({
       <View style={styles.container}>
         <TouchableOpacity
           onLongPress={handleLongPress}
-          onPress={() => {}} // Empty handler - row tap does nothing, only long press opens menu
-          activeOpacity={1} // No visual feedback on tap since it does nothing
+          onPress={() => onShowPress?.(show, eventDate)}
+          activeOpacity={onShowPress ? 0.7 : 1}
           delayLongPress={500}
           accessibilityLabel={accessibilityLabel || `Event: ${show.artist} at ${show.venue}${show.time ? ` at ${show.time}` : ''}`}
           accessibilityRole="button"
-          accessibilityHint="Long press to open quick actions menu. Tap artist name to open event link, tap map icon for directions, tap heart to favorite."
+          accessibilityHint={onShowPress ? "Double tap to view event details. Long press for quick actions." : "Long press to open quick actions menu. Tap artist name to open event link, tap map icon for directions, tap heart to favorite."}
         >
         <View style={styles.content}>
           <TouchableOpacity

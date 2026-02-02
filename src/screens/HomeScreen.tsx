@@ -15,6 +15,7 @@ import { useEvents } from '../hooks/useEvents';
 import { SwipeableContainer } from '../hooks/useSwipeGesture';
 import { useTheme } from '../context/ThemeContext';
 import { useCity } from '../context/CityContext';
+import { useEventDetail } from '../context/EventDetailContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCacheKeys, SEARCH_DEBOUNCE_MS } from '../utils/constants';
 import { FilterState, DEFAULT_FILTERS } from '../types/filters';
@@ -23,6 +24,7 @@ import { hasActiveFilters } from '../utils/filterHelpers';
 export const HomeScreen: React.FC = () => {
   const { colors } = useTheme();
   const { city } = useCity();
+  const { setSelected: setEventDetail } = useEventDetail();
   const cacheKeys = getCacheKeys(city);
   const styles = createStyles(colors);
   const { events, loading, error, lastUpdated, refresh, isRefreshing } = useEvents();
@@ -267,6 +269,7 @@ export const HomeScreen: React.FC = () => {
             refreshing={isRefreshing}
             onRefresh={refresh}
             filters={filters}
+            onShowPress={(show, eventDate) => setEventDetail(show, eventDate ?? null, events)}
           />
         </View>
       </SwipeableContainer>

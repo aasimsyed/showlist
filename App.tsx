@@ -8,6 +8,8 @@ import { StyleSheet, Text } from 'react-native';
 import { CityProvider } from './src/context/CityContext';
 import { FavoritesProvider, useFavorites } from './src/context/FavoritesContext';
 import { RecommendationsProvider } from './src/context/RecommendationsContext';
+import { EventDetailProvider } from './src/context/EventDetailContext';
+import { EventDetailModal } from './src/components/EventDetailModal';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { MyEventsScreen } from './src/screens/MyEventsScreen';
@@ -119,7 +121,10 @@ export default function App() {
         <CityProvider>
           <FavoritesProvider>
             <RecommendationsProvider>
-              <AppContent />
+              <EventDetailProvider>
+                <AppContent />
+                <EventDetailModal />
+              </EventDetailProvider>
             </RecommendationsProvider>
           </FavoritesProvider>
         </CityProvider>
