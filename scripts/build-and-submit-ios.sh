@@ -72,8 +72,8 @@ cd "$IOS_DIR"
 pod install
 cd "$PROJECT_DIR"
 
-# Detect scheme and workspace
-WORKSPACE=$(ls "$IOS_DIR"/*.xcworkspace 2>/dev/null | head -1)
+# Detect scheme and workspace (.xcworkspace is a directory; use -d so ls gives path not contents)
+WORKSPACE=$(ls -d "$IOS_DIR"/*.xcworkspace 2>/dev/null | head -1)
 [ -z "$WORKSPACE" ] && { echo "Error: No .xcworkspace found in ios/"; exit 1; }
 WORKSPACE_NAME=$(basename "$WORKSPACE" .xcworkspace)
 
