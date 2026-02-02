@@ -115,13 +115,14 @@ cat > "$EXPORT_PLIST" << EOF
 </plist>
 EOF
 
-# Step 5: Archive
+# Step 5: Archive (DEVELOPMENT_TEAM required for code signing)
 echo "[5/7] Building archive (this may take several minutes)..."
 xcodebuild -workspace "$WORKSPACE" \
   -scheme "$SCHEME" \
   -configuration Release \
   -destination "generic/platform=iOS" \
   -archivePath "$ARCHIVE_PATH" \
+  DEVELOPMENT_TEAM="$TEAM_ID" \
   archive
 
 # Step 6: Export IPA
