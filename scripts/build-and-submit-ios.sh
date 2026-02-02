@@ -112,7 +112,7 @@ cat > "$EXPORT_PLIST" << EOF
   <key>uploadBitcode</key>
   <false/>
   <key>uploadSymbols</key>
-  <true/>
+  <false/>
 </dict>
 </plist>
 EOF
