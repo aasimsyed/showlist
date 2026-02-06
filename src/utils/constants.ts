@@ -7,6 +7,7 @@ export const API_ENDPOINTS = {
   CITIES: '/api/cities',
   ARTIST_GENRE: '/api/artist-genre',
   EVENT_DESCRIPTION: '/api/event-description',
+  EVENT_DESCRIPTION_EMBEDDINGS: '/api/event-description-embeddings',
   PLACEMENTS: '/api/placements',
 };
 

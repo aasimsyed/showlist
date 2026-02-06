@@ -3,6 +3,12 @@ import { getUserProfile, UserProfile } from './userBehaviorTracker';
 import { mlService } from '../services/mlService';
 import { getArtistGenre } from '../services/artistGenreService';
 import { generateExplanation, RecommendationExplanation } from './explanationGenerator';
+import { apiService } from '../services/api';
+import { showKey, meanVector, cosineSimilarity, cosineToZeroOne } from './twoTowerScoring';
+import { getEmbeddingMap as getCachedEmbeddingMap, setEmbeddingMap as setCachedEmbeddingMap } from './embeddingCache';
+import { parseEventDateToTimestamp } from './helpers';
+
+const EMBEDDING_BATCH_SIZE = 30;
 
 const MAX_ARTISTS_FOR_GENRE_PROFILE = 20;
 
@@ -105,13 +111,50 @@ export function convertShowToFeatures(show: Show): {
   };
 }
 
+/**
+ * Fetch description embeddings for unique (artist, venue) pairs; use cache, then batch-fetch only missing.
+ */
+async function fetchEmbeddingMap(
+  city: string,
+  items: { artist: string; venue: string }[]
+): Promise<Map<string, number[]>> {
+  const seen = new Set<string>();
+  const unique: { artist: string; venue: string }[] = [];
+  for (const it of items) {
+    const k = showKey(it.artist, it.venue);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    unique.push({ artist: it.artist, venue: it.venue });
+  }
+  const map = new Map<string, number[]>(getCachedEmbeddingMap(unique));
+  const missing = unique.filter((it) => !map.has(showKey(it.artist, it.venue)));
+  const toCache: { artist: string; venue: string; embedding: number[] }[] = [];
+  for (let i = 0; i < missing.length; i += EMBEDDING_BATCH_SIZE) {
+    const chunk = missing.slice(i, i + EMBEDDING_BATCH_SIZE);
+    try {
+      const res = await apiService.fetchEventDescriptionEmbeddings(city, chunk);
+      for (const e of res.embeddings || []) {
+        if (e.embedding && e.embedding.length > 0) {
+          map.set(showKey(e.artist, e.venue), e.embedding);
+          toCache.push({ artist: e.artist, venue: e.venue, embedding: e.embedding });
+        }
+      }
+    } catch (err) {
+      console.warn('Embedding batch failed', err);
+    }
+  }
+  if (toCache.length > 0) setCachedEmbeddingMap(toCache);
+  return map;
+}
+
 export async function getMLRecommendations(
   events: EventDay[],
   favorites: Show[],
-  limit: number = 10
+  limit: number = 10,
+  city: string = ''
 ): Promise<MLRecommendationScore[]> {
   const profile = await getUserProfile();
-  
+
   if (!profile || profile.totalInteractions < 3) {
     return [];
   }
@@ -121,10 +164,34 @@ export async function getMLRecommendations(
   const userFeatures = convertProfileToFeatures(profile);
   const userGenreProfile = await buildUserGenreProfile(favorites);
 
+  // Two-tower: collect all candidate + favorite (artist, venue), fetch embeddings, build user vec
+  const embeddingItems: { artist: string; venue: string }[] = [];
   for (const day of events) {
     for (const show of day.shows) {
-      const showKey = `${show.artist}|${show.venue}|${show.time || ''}`;
-      if (favoriteKeys.has(showKey)) continue;
+      embeddingItems.push({ artist: show.artist, venue: show.venue });
+    }
+  }
+  for (const s of favorites) {
+    embeddingItems.push({ artist: s.artist, venue: s.venue });
+  }
+  let embeddingMap = new Map<string, number[]>();
+  let userEmbedding: number[] = [];
+  if (city && city.trim()) {
+    try {
+      embeddingMap = await fetchEmbeddingMap(city, embeddingItems);
+      const favVecs = favorites
+        .map((s) => embeddingMap.get(showKey(s.artist, s.venue)))
+        .filter((v): v is number[] => Array.isArray(v) && v.length > 0);
+      userEmbedding = meanVector(favVecs);
+    } catch (err) {
+      console.warn('Two-tower embeddings failed', err);
+    }
+  }
+
+  for (const day of events) {
+    for (const show of day.shows) {
+      const candidateKey = `${show.artist}|${show.venue}|${show.time || ''}`;
+      if (favoriteKeys.has(candidateKey)) continue;
 
       const eventFeatures = convertShowToFeatures(show);
       let mlScore = 0;
@@ -157,11 +224,21 @@ export async function getMLRecommendations(
       ruleBasedScore += Math.min(artistCount * 20, 40);
       ruleBasedScore += Math.min(venueCount * 15, 30);
 
-      // Combine: 50% rule-based, 30% ML, 20% genre match
+      let twoTowerScore = 0;
+      if (userEmbedding.length > 0) {
+        const itemEmb = embeddingMap.get(showKey(show.artist, show.venue));
+        if (itemEmb && itemEmb.length > 0) {
+          twoTowerScore = cosineToZeroOne(cosineSimilarity(userEmbedding, itemEmb));
+        }
+      }
+
+      // Combine: two-tower (description) 35%, rule-based 35%, genre 20%, legacy ML 10%
+      // ruleBasedScore is 0–70; *0.5 gives 0–35 to match prior scale
       const finalScore =
+        twoTowerScore * 100 * 0.35 +
         ruleBasedScore * 0.5 +
-        mlScore * 100 * 0.3 +
-        genreMatch * 100 * 0.2;
+        genreMatch * 100 * 0.2 +
+        mlScore * 100 * 0.1;
 
       if (finalScore > 20 || explanation.reasons.length > 0) {
         scores.push({
@@ -175,9 +252,14 @@ export async function getMLRecommendations(
     }
   }
 
-  // Sort by score and return top N
+  // Sort by date earliest first, then by score descending within same day
   return scores
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => {
+      const tA = parseEventDateToTimestamp(a.eventDate || '');
+      const tB = parseEventDateToTimestamp(b.eventDate || '');
+      if (tA !== tB) return tA - tB;
+      return b.score - a.score;
+    })
     .slice(0, limit);
 }
 

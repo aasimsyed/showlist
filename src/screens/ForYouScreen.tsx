@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,11 +18,22 @@ import { useFavorites } from '../context/FavoritesContext';
 
 export const ForYouScreen: React.FC = () => {
   const { colors } = useTheme();
-  const { recommendations, loading } = useRecommendationsContext();
-  const { events, refresh, isRefreshing } = useEvents();
+  const { recommendations, loading, refresh: refreshRecommendations } = useRecommendationsContext();
+  const { events, refresh: refreshEvents, isRefreshing: isRefreshingEvents } = useEvents();
   const { setSelected: setEventDetail } = useEventDetail();
   const { favorites } = useFavorites();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const styles = createStyles(colors);
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshEvents();
+      await refreshRecommendations();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [refreshEvents, refreshRecommendations]);
 
   const renderRecommendation = ({ item }: { item: typeof recommendations[0] }) => {
     return (
@@ -95,11 +106,11 @@ export const ForYouScreen: React.FC = () => {
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={refresh}
+            refreshing={isRefreshing || isRefreshingEvents || loading}
+            onRefresh={onRefresh}
             tintColor={colors.pink}
             colors={[colors.pink]}
-            accessibilityLabel="Pull to refresh recommendations"
+            accessibilityLabel="Pull to refresh events and recommendations"
           />
         }
         accessibilityLabel={`Recommendations list with ${recommendations.length} ${recommendations.length === 1 ? 'event' : 'events'}`}

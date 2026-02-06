@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { InteractionManager } from 'react-native';
 import { useEvents } from './useEvents';
 import { useFavorites } from '../context/FavoritesContext';
+import { useCity } from '../context/CityContext';
 import { getMLRecommendations, MLRecommendationScore, convertProfileToFeatures, convertShowToFeatures } from '../utils/mlRecommendationEngine';
 import { updateUserProfile, getUserProfile } from '../utils/userBehaviorTracker';
 import { mlService } from '../services/mlService';
@@ -14,6 +15,7 @@ import {
 export function useRecommendations(limit: number = 10) {
   const { events } = useEvents();
   const { favorites } = useFavorites();
+  const { city } = useCity();
   const [recommendations, setRecommendations] = useState<MLRecommendationScore[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastFavoritesCount, setLastFavoritesCount] = useState(0);
@@ -88,7 +90,7 @@ export function useRecommendations(limit: number = 10) {
 
     setLoading(true);
     try {
-      const recs = await getMLRecommendations(events, favorites, limit);
+      const recs = await getMLRecommendations(events, favorites, limit, city);
       setRecommendations(recs);
       saveRecommendations(recs).catch(() => {});
     } catch (error) {
@@ -97,7 +99,7 @@ export function useRecommendations(limit: number = 10) {
     } finally {
       setLoading(false);
     }
-  }, [events, favorites, limit]);
+  }, [events, favorites, limit, city]);
 
   useEffect(() => {
     let task: { cancel: () => void } | null = null;
@@ -112,5 +114,5 @@ export function useRecommendations(limit: number = 10) {
     };
   }, [calculateRecommendations]);
 
-  return { recommendations, loading };
+  return { recommendations, loading, refresh: calculateRecommendations };
 }

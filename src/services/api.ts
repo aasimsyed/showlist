@@ -36,6 +36,18 @@ export interface PlacementsResponse {
   sponsors: { label: string; url: string }[];
 }
 
+export interface EventDescriptionEmbeddingItem {
+  artist: string;
+  venue: string;
+  embedding: number[];
+}
+
+export interface EventDescriptionEmbeddingsResponse {
+  embeddings: EventDescriptionEmbeddingItem[];
+  error?: string;
+  _hint?: string;
+}
+
 class ApiService {
   private client: AxiosInstance;
 
@@ -133,6 +145,31 @@ class ApiService {
     } catch (error: any) {
       if (error.response) console.warn('Event description API error:', error.response.status);
       return { description: '', artistDescription: '', venueDescription: '' };
+    }
+  }
+
+  /**
+   * Batch-fetch description embeddings for two-tower recommendations.
+   * Payload is base64url-encoded JSON: { city, items: [{ artist, venue }] }. Max 30 items per request.
+   */
+  async fetchEventDescriptionEmbeddings(
+    city: string,
+    items: { artist: string; venue: string }[]
+  ): Promise<EventDescriptionEmbeddingsResponse> {
+    if (!items.length) return { embeddings: [] };
+    const payload = JSON.stringify({ city: city || '', items: items.slice(0, 30) });
+    const base64 = typeof btoa !== 'undefined'
+      ? btoa(unescape(encodeURIComponent(payload)))
+      : Buffer.from(payload, 'utf8').toString('base64');
+    const payloadParam = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    try {
+      const url = `${API_ENDPOINTS.EVENT_DESCRIPTION_EMBEDDINGS}?payload=${encodeURIComponent(payloadParam)}`;
+      const response = await this.client.get<EventDescriptionEmbeddingsResponse>(url, { timeout: 60000 });
+      const list = Array.isArray(response.data?.embeddings) ? response.data.embeddings : [];
+      return { embeddings: list, _hint: response.data?._hint };
+    } catch (error: any) {
+      if (error.response) console.warn('Event description embeddings API error:', error.response.status);
+      return { embeddings: [] };
     }
   }
 

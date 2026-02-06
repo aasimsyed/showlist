@@ -91,6 +91,27 @@ export function formatShortDate(dateString: string): string {
 }
 
 /**
+ * Parse event date string to timestamp for sorting (earliest first). Returns 0 if invalid.
+ */
+export function parseEventDateToTimestamp(dateString: string): number {
+  if (!dateString || !dateString.trim()) return 0;
+  for (const fmt of SHORT_DATE_FORMATS) {
+    try {
+      const date = parse(dateString, fmt, new Date());
+      if (isValid(date)) return date.getTime();
+    } catch {
+      /* try next */
+    }
+  }
+  try {
+    const d = new Date(dateString);
+    return isValid(d) ? d.getTime() : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Find the event date string for a show by matching artist + venue in the events list.
  * Used for My Events so we can display and pass date for favorites.
  */

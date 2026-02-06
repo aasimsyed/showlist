@@ -102,6 +102,26 @@ export default {
         return response;
       }
 
+      // GET /api/event-description-embeddings?payload=<base64url(JSON)>: batch description embeddings for two-tower ML
+      // Payload JSON: { city: string, items: [{ artist, venue }] } (max 30 items).
+      if (pathname.includes('event-description-embeddings')) {
+        const payloadParam = url.searchParams.get('payload');
+        if (!payloadParam) {
+          return new Response(
+            JSON.stringify({ error: 'Missing query parameter: payload' }),
+            { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+          );
+        }
+        const result = await handleEventDescriptionEmbeddings(payloadParam, env);
+        return new Response(JSON.stringify(result), {
+          headers: {
+            ...CORS_HEADERS,
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=604800',
+          },
+        });
+      }
+
       // GET /api/placements?city=...: support, advertise, sponsor links from showlist page HTML
       if (pathname.includes('placements')) {
         const cityParam = (url.searchParams.get('city') || 'austin').toLowerCase().replace(/[^a-z-]/g, '') || 'austin';
@@ -406,6 +426,100 @@ If the artist or venue is obscure, give a brief honest line. Do not invent facts
     console.error('Gemini event-description fetch error:', e);
     return null;
   }
+}
+
+/**
+ * Call Gemini Embedding API for one text. Returns embedding vector (number[]) or [] on failure.
+ * Uses SEMANTIC_SIMILARITY task type for recommendation similarity.
+ */
+async function fetchGeminiEmbedding(apiKey, text) {
+  if (!apiKey || !text || !String(text).trim()) return [];
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: { parts: [{ text: String(text).trim() }] },
+          taskType: 'SEMANTIC_SIMILARITY',
+        }),
+      }
+    );
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('Gemini embed error', res.status, err);
+      return [];
+    }
+    const data = await res.json();
+    const values = (data.embedding && data.embedding.values) ? data.embedding.values : [];
+    return Array.isArray(values) ? values : [];
+  } catch (e) {
+    console.error('Gemini embed fetch error', e);
+    return [];
+  }
+}
+
+/**
+ * Fetch embeddings for multiple texts (one API call per text; preserves order).
+ */
+async function fetchGeminiEmbeddings(apiKey, texts) {
+  if (!apiKey || !texts || texts.length === 0) return [];
+  const out = [];
+  for (const t of texts) {
+    const vec = await fetchGeminiEmbedding(apiKey, t);
+    out.push(vec);
+  }
+  return out;
+}
+
+/**
+ * GET /api/event-description-embeddings?payload=<base64url(JSON)>
+ * JSON payload: { city: string, items: [{ artist: string, venue: string }] } (max 30 items).
+ * Returns { embeddings: [{ artist, venue, embedding: number[] }] } (same order; empty array if no description/embed).
+ */
+async function handleEventDescriptionEmbeddings(payloadB64, env) {
+  let payload;
+  try {
+    const json = atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'));
+    payload = JSON.parse(json);
+  } catch (e) {
+    return { error: 'Invalid payload', embeddings: [] };
+  }
+  const city = (payload.city && String(payload.city).trim()) || '';
+  const items = Array.isArray(payload.items) ? payload.items.slice(0, 30) : [];
+  if (items.length === 0) {
+    return { embeddings: [] };
+  }
+
+  const descriptions = [];
+  for (const it of items) {
+    const artist = (it.artist && String(it.artist).trim()) || '';
+    const venue = (it.venue && String(it.venue).trim()) || 'this venue';
+    if (!artist) {
+      descriptions.push('');
+      continue;
+    }
+    const descResult = await fetchEventDescription(artist, venue, city, env.GEMINI_API_KEY);
+    const text = (descResult && (descResult.description || descResult.artistDescription || descResult.venueDescription)) || '';
+    descriptions.push(text);
+  }
+
+  if (!env.GEMINI_API_KEY) {
+    return {
+      embeddings: items.map((it, i) => ({ artist: it.artist, venue: it.venue, embedding: [] })),
+      _hint: 'missing_api_key',
+    };
+  }
+
+  const vectors = await fetchGeminiEmbeddings(env.GEMINI_API_KEY, descriptions);
+  const embeddings = items.map((it, i) => ({
+    artist: it.artist,
+    venue: it.venue,
+    embedding: Array.isArray(vectors[i]) ? vectors[i] : [],
+  }));
+
+  return { embeddings };
 }
 
 /**

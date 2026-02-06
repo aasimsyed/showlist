@@ -5,6 +5,7 @@ import type { MLRecommendationScore } from '../utils/mlRecommendationEngine';
 interface RecommendationsContextType {
   recommendations: MLRecommendationScore[];
   loading: boolean;
+  refresh: () => Promise<void>;
 }
 
 const RecommendationsContext = createContext<RecommendationsContextType | undefined>(undefined);
@@ -14,10 +15,10 @@ const RecommendationsContext = createContext<RecommendationsContextType | undefi
  * Must be used within FavoritesProvider (useRecommendations depends on useFavorites).
  */
 export function RecommendationsProvider({ children }: { children: ReactNode }) {
-  const { recommendations, loading } = useRecommendations(50);
+  const { recommendations, loading, refresh } = useRecommendations(50);
 
   return (
-    <RecommendationsContext.Provider value={{ recommendations, loading }}>
+    <RecommendationsContext.Provider value={{ recommendations, loading, refresh }}>
       {children}
     </RecommendationsContext.Provider>
   );
