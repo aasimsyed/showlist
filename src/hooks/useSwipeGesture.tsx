@@ -18,8 +18,8 @@ export function useSwipeGesture({
     .enabled(enabled)
     // Activate sooner (36px) so we register before vertical drift accumulates
     .activeOffsetX([-36, 36])
-    // Allow more vertical drift (45px) before failing; avoids failing on diagonal swipes
-    .failOffsetY([-45, 45])
+    // Fail on small vertical movement so list scroll wins and doesn't get stuck
+    .failOffsetY([-25, 25])
     .minPointers(1)
     .maxPointers(1)
     .onEnd((event) => {

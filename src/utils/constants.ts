@@ -7,6 +7,7 @@ export const API_ENDPOINTS = {
   CITIES: '/api/cities',
   ARTIST_GENRE: '/api/artist-genre',
   EVENT_DESCRIPTION: '/api/event-description',
+  PLACEMENTS: '/api/placements',
 };
 
 /** Fallback when /api/cities fails (e.g. offline). */

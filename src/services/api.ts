@@ -30,6 +30,12 @@ export interface EventDescriptionResponse {
   _hint?: 'missing_api_key' | 'gemini_unavailable';
 }
 
+export interface PlacementsResponse {
+  support: { copy?: string; patreonUrl?: string };
+  advertiseUrl?: string | null;
+  sponsors: { label: string; url: string }[];
+}
+
 class ApiService {
   private client: AxiosInstance;
 
@@ -127,6 +133,24 @@ class ApiService {
     } catch (error: any) {
       if (error.response) console.warn('Event description API error:', error.response.status);
       return { description: '', artistDescription: '', venueDescription: '' };
+    }
+  }
+
+  /**
+   * Fetch support, advertise, and sponsor placements from the showlist page (parsed from HTML).
+   */
+  async fetchPlacements(city: ShowlistCityId): Promise<PlacementsResponse> {
+    try {
+      const url = `${API_ENDPOINTS.PLACEMENTS}?city=${encodeURIComponent(city)}`;
+      const response = await this.client.get<PlacementsResponse>(url);
+      return {
+        support: response.data?.support ?? {},
+        advertiseUrl: response.data?.advertiseUrl ?? null,
+        sponsors: Array.isArray(response.data?.sponsors) ? response.data.sponsors : [],
+      };
+    } catch (error: any) {
+      if (error.response) console.warn('Placements API error:', error.response.status);
+      return { support: {}, advertiseUrl: null, sponsors: [] };
     }
   }
 

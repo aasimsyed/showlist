@@ -109,17 +109,14 @@ export const ShowCard: React.FC<ShowCardProps> = ({
     }
   };
 
-  // Swipe up to favorite gesture
-  // Only activate on clear upward swipe (at least 30px up)
-  // Fail if there's significant horizontal or downward movement
+  // Swipe up to favorite gesture — require large deliberate swipe so list scroll never activates this
   const swipeUpGesture = Gesture.Pan()
-    .activeOffsetY([-50, -30]) // Require at least 30px upward movement to activate
-    .failOffsetX([-15, 15]) // Fail if horizontal movement exceeds 15px
-    .failOffsetY([5, 100]) // Fail if downward movement (prevents accidental activation on taps)
+    .activeOffsetY([-100, -70]) // Require 70px+ upward so normal scroll doesn't steal touch
+    .failOffsetX([-15, 15])
+    .failOffsetY([5, 100])
     .onEnd((event) => {
-      // Only trigger if it's a clear upward swipe
       const { translationY, velocityY } = event;
-      if (translationY < -30 && velocityY < -500 && !favorited) {
+      if (translationY < -60 && velocityY < -500 && !favorited) {
         runOnJS(toggleFavorite)(show);
       }
     });

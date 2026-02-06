@@ -102,6 +102,28 @@ export default {
         return response;
       }
 
+      // GET /api/placements?city=...: support, advertise, sponsor links from showlist page HTML
+      if (pathname.includes('placements')) {
+        const cityParam = (url.searchParams.get('city') || 'austin').toLowerCase().replace(/[^a-z-]/g, '') || 'austin';
+        const placementsUrl = `https://${cityParam}.showlists.net/`;
+        const placementsRes = await fetch(placementsUrl, {
+          headers: { 'User-Agent': 'ShowlistApp/1.0' },
+          cf: { cacheTtl: 3600, cacheEverything: true },
+        });
+        if (!placementsRes.ok) {
+          return new Response(
+            JSON.stringify({ support: {}, advertiseUrl: null, sponsors: [] }),
+            { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } }
+          );
+        }
+        const placementsHtml = await placementsRes.text();
+        const baseUrl = `${placementsUrl.replace(/\/$/, '')}/`;
+        const placements = parsePlacementsFromHtml(placementsHtml, baseUrl);
+        return new Response(JSON.stringify(placements), {
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+        });
+      }
+
       // GET /api/cities: scrape https://www.showlists.net/ for city links
       if (pathname.includes('cities')) {
         const networkRes = await fetch('https://www.showlists.net/', {
@@ -384,6 +406,60 @@ If the artist or venue is obscure, give a brief honest line. Do not invent facts
     console.error('Gemini event-description fetch error:', e);
     return null;
   }
+}
+
+/**
+ * Parse showlist page HTML for support, advertise, and sponsor placements.
+ * baseUrl is used to resolve relative hrefs (e.g. /advertise/).
+ * Returns { support: { copy?, patreonUrl? }, advertiseUrl?, sponsors: [{ label, url }] }.
+ */
+function parsePlacementsFromHtml(html, baseUrl) {
+  const out = { support: {}, advertiseUrl: null, sponsors: [] };
+  if (!html || typeof html !== 'string') return out;
+  const origin = (baseUrl && typeof baseUrl === 'string') ? baseUrl.replace(/\/$/, '') : 'https://austin.showlists.net';
+
+  // Patreon / support link: <a href="...patreon..."> or text "become a patron" / "support"
+  const patreonLinkMatch = html.match(/<a[^>]*href="(https?:\/\/[^"]*patreon[^"]*)"[^>]*>[\s\S]*?<\/a>/i);
+  if (patreonLinkMatch) out.support.patreonUrl = patreonLinkMatch[1].replace(/&amp;/g, '&').trim();
+  if (!out.support.patreonUrl) {
+    const anyPatreon = html.match(/<a[^>]*href="(https?:\/\/[^"]+)"[^>]*>[\s\S]*?(?:patreon|become a patron|support us)[\s\S]*?<\/a>/i);
+    if (anyPatreon) out.support.patreonUrl = anyPatreon[1].replace(/&amp;/g, '&').trim();
+  }
+
+  // Support copy: short snippet containing "patreon" or "support" or "patron"
+  const supportBlockMatch = html.match(/<p[^>]*>[\s\S]*?(?:patreon|support|patron)[\s\S]*?<\/p>/i) || html.match(/<div[^>]*class="[^"]*(?:support|patreon|patron)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+  if (supportBlockMatch) {
+    const raw = (supportBlockMatch[1] || supportBlockMatch[0] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (raw.length > 10 && raw.length < 300) out.support.copy = raw;
+  }
+
+  // Advertise link: nav/footer link with text "advertise" or "advertising"
+  const advertiseMatch = html.match(/<a[^>]*href="([^"]*)"[^>]*>[\s\S]*?advertise[\s\S]*?<\/a>/i);
+  if (advertiseMatch) {
+    let href = advertiseMatch[1].replace(/&amp;/g, '&').trim();
+    if (href.startsWith('/')) href = `${origin}${href}`;
+    else if (!href.startsWith('http')) href = `${origin}/${href}`;
+    out.advertiseUrl = href;
+  }
+
+  // Sponsor / partner links: anchors inside common placement class names (optional)
+  const sponsorSectionMatch = html.match(/<div[^>]*class="[^"]*(?:sponsor|partner|ad-placement|placement)[^"]*"[^>]*>([\s\S]*?)<\/div>/gi);
+  if (sponsorSectionMatch) {
+    const seen = new Set();
+    for (const block of sponsorSectionMatch) {
+      const linkMatches = block.matchAll(/<a[^>]*href="(https?:\/\/[^"]+)"[^>]*>([^<]+)<\/a>/gi);
+      for (const m of linkMatches) {
+        const url = m[1].replace(/&amp;/g, '&').trim();
+        const label = m[2].replace(/\s+/g, ' ').trim();
+        if (label && url && !seen.has(url) && !url.includes('patreon')) {
+          seen.add(url);
+          out.sponsors.push({ label, url });
+        }
+      }
+    }
+  }
+
+  return out;
 }
 
 /**
