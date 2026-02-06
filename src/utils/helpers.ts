@@ -1,4 +1,5 @@
 import { format, parse, isValid } from 'date-fns';
+import type { EventDay, Show } from '../types';
 
 /**
  * Format date string to display format
@@ -87,4 +88,22 @@ export function formatShortDate(dateString: string): string {
   } catch {
     return dateString;
   }
+}
+
+/**
+ * Find the event date string for a show by matching artist + venue in the events list.
+ * Used for My Events so we can display and pass date for favorites.
+ */
+export function findEventDateForShow(events: EventDay[], show: Show): string | null {
+  const a = (show.artist ?? '').trim().toLowerCase();
+  const v = (show.venue ?? '').trim().toLowerCase();
+  for (const day of events) {
+    const found = day.shows.some(
+      (s) =>
+        (s.artist ?? '').trim().toLowerCase() === a &&
+        (s.venue ?? '').trim().toLowerCase() === v
+    );
+    if (found) return day.date;
+  }
+  return null;
 }

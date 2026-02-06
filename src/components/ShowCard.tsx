@@ -9,6 +9,7 @@ import { useFavorites } from '../context/FavoritesContext';
 import { shareEvent } from '../utils/shareHelpers';
 import { addEventToCalendar } from '../utils/calendarHelpers';
 import { parse } from 'date-fns';
+import { formatShortDate } from '../utils/helpers';
 import { useRecommendationsContext } from '../context/RecommendationsContext';
 import { getRecommendationData } from '../utils/mlRecommendationEngine';
 import { MLRecommendationBadge } from './MLRecommendationBadge';
@@ -135,6 +136,11 @@ export const ShowCard: React.FC<ShowCardProps> = ({
           accessibilityRole="button"
           accessibilityHint={onShowPress ? "Double tap to view event details. Long press for quick actions." : "Long press to open quick actions menu. Tap artist name to open event link, tap map icon for directions, tap heart to favorite."}
         >
+        {eventDate ? (
+          <Text style={styles.eventDate} numberOfLines={1}>
+            {formatShortDate(eventDate)}
+          </Text>
+        ) : null}
         <View style={styles.content}>
           <TouchableOpacity
             onPress={(e) => {
@@ -312,6 +318,11 @@ const createStyles = (colors: any, typography: any) => StyleSheet.create({
   },
   favoriteIcon: {
     fontSize: 20,
+  },
+  eventDate: {
+    fontSize: typography.captionSize,
+    color: colors.textSecondary,
+    marginBottom: 4,
   },
   quickActionsContainer: {
     flexDirection: 'row',

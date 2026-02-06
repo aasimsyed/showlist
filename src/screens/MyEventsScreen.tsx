@@ -14,7 +14,7 @@ import { useEventDetail } from '../context/EventDetailContext';
 import { useEvents } from '../hooks/useEvents';
 import { useTheme } from '../context/ThemeContext';
 import { ShowCard } from '../components/ShowCard';
-import { filterShows } from '../utils/helpers';
+import { filterShows, findEventDateForShow } from '../utils/helpers';
 import { Show } from '../types';
 
 export const MyEventsScreen: React.FC = () => {
@@ -37,12 +37,14 @@ export const MyEventsScreen: React.FC = () => {
   );
 
   const renderShow = ({ item }: { item: Show }) => {
+    const eventDate = findEventDateForShow(events, item);
     return (
       <View>
         <ShowCard
           show={item}
+          eventDate={eventDate ?? undefined}
           showFavoriteButton={false}
-          onShowPress={(show) => setEventDetail(show, null, events)}
+          onShowPress={(show, date) => setEventDetail(show, date ?? null, events)}
         />
         <TouchableOpacity
           style={styles.removeButton}
