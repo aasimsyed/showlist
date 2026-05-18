@@ -170,7 +170,7 @@ export default {
         );
       }
 
-      // GET /api/events?city=...: fetch that city's showlist
+      // GET /api/events?city=...: fetch showlists.net (+ austinshowspot.com for Austin), merge
       const cityParam = (url.searchParams.get('city') || 'austin').toLowerCase().replace(/[^a-z-]/g, '') || 'austin';
       const showlistUrl = `https://${cityParam}.showlists.net/`;
 
@@ -189,8 +189,26 @@ export default {
       }
 
       const html = await response.text();
-      
-      const events = parseShowlistHTML(html);
+      let events = parseShowlistHTML(html);
+
+      // Austin: also scrape austinshowspot.com and merge (union of both sources)
+      if (cityParam === 'austin') {
+        try {
+          const showspotRes = await fetch('https://www.austinshowspot.com/', {
+            headers: { 'User-Agent': 'ShowlistApp/1.0' },
+            cf: { cacheTtl: 300, cacheEverything: true },
+          });
+          if (showspotRes.ok) {
+            const showspotHtml = await showspotRes.text();
+            const showspotEvents = parseAustinShowspotHTML(showspotHtml);
+            if (showspotEvents.length > 0) {
+              events = mergeEventSources(events, showspotEvents);
+            }
+          }
+        } catch (showspotErr) {
+          console.warn('Austin Show Spot fetch/parse failed, using showlists only:', showspotErr);
+        }
+      }
 
       if (events.length === 0) {
         throw new Error('No events found in HTML');
@@ -931,6 +949,168 @@ function parseShowFromLI(liContent) {
     console.error('Error parsing show:', error, liContent);
     return null;
   }
+}
+
+/**
+ * Parse https://www.austinshowspot.com/ HTML for Austin show data.
+ * Shows are in a DataTables <table id="tablepress-1">.
+ * Each <tr> is one bill: column-5 has date (MM/DD/YYYY), column-3 has show text + links.
+ */
+function parseAustinShowspotHTML(html) {
+  if (!html || typeof html !== 'string') return [];
+
+  const tableMatch = html.match(/<table[^>]*id=["']tablepress-1["'][^>]*>([\s\S]*?)<\/table>/i);
+  if (!tableMatch) return [];
+
+  const tbodyMatch = tableMatch[1].match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+  const rowHtml = tbodyMatch ? tbodyMatch[1] : tableMatch[1];
+
+  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  const eventsByDate = {};
+
+  for (const trMatch of rowHtml.matchAll(trRegex)) {
+    const cells = [];
+    for (const tdMatch of trMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)) {
+      cells.push(tdMatch[1]);
+    }
+    if (cells.length < 5) continue;
+
+    // column-5 (index 4) has date as MM/DD/YYYY
+    const rawDate = cleanHTML(cells[4]).trim();
+    if (!rawDate || !/^\d{2}\/\d{2}\/\d{4}$/.test(rawDate)) continue;
+
+    const show = parseShowspotCell(cells[2]);
+    if (!show) continue;
+
+    if (!eventsByDate[rawDate]) eventsByDate[rawDate] = [];
+    eventsByDate[rawDate].push(show);
+  }
+
+  return Object.keys(eventsByDate)
+    .sort((a, b) => new Date(a) - new Date(b))
+    .map(dateKey => ({
+      date: formatShowspotDate(dateKey),
+      shows: eventsByDate[dateKey],
+    }));
+}
+
+/**
+ * Parse one austinshowspot column-3 cell into a Show object.
+ */
+function parseShowspotCell(cellHtml) {
+  if (!cellHtml) return null;
+
+  // Time from <span class="start">MM/DD/YYYY HH:MM</span> – convert 24h to 12h
+  let time = null;
+  const startMatch = cellHtml.match(/<span[^>]*class=["']start["'][^>]*>[^<]*\s(\d{1,2}):(\d{2})<\/span>/i);
+  if (startMatch) {
+    const h = parseInt(startMatch[1], 10);
+    const m = startMatch[2];
+    const period = h >= 12 ? 'pm' : 'am';
+    const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+    time = `${h12}:${m}${period}`;
+  }
+
+  // Venue: first anchor after the literal text " at "
+  const venueAnchorMatch = cellHtml.match(/\bat\s+<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+  if (!venueAnchorMatch) return null;
+
+  const venueHref = venueAnchorMatch[1];
+  const venueText = cleanHTML(venueAnchorMatch[2]).trim();
+
+  // Split "Venue Name, 123 Street" into name vs address when a number follows the first comma
+  let venueName = venueText;
+  let address = venueText;
+  const splitMatch = venueText.match(/^([^,]+),\s*(\d+.+)$/);
+  if (splitMatch) {
+    venueName = splitMatch[1].trim();
+    address = splitMatch[2].trim();
+  }
+
+  // Artist: text before the " at <venue-anchor>" fragment, strip inner HTML
+  const artistRaw = cleanHTML(cellHtml.substring(0, cellHtml.indexOf(venueAnchorMatch[0])))
+    .replace(/\s+/g, ' ')
+    .replace(/\s+at\s*$/, '')
+    .trim();
+  if (!artistRaw || !venueName) return null;
+
+  // Event link: prefer Tickets, then Information
+  const ticketMatch =
+    cellHtml.match(/<a[^>]*title=["']Tickets link["'][^>]*href=["']([^"']+)["']/i) ||
+    cellHtml.match(/<a[^>]*href=["']([^"']+)["'][^>]*title=["']Tickets link["']/i);
+  const infoMatch =
+    cellHtml.match(/<a[^>]*title=["']Information link["'][^>]*href=["']([^"']+)["']/i) ||
+    cellHtml.match(/<a[^>]*href=["']([^"']+)["'][^>]*title=["']Information link["']/i);
+  const eventLink = (ticketMatch && ticketMatch[1]) || (infoMatch && infoMatch[1]) || null;
+
+  // Map link: Google Maps URL if present
+  const mapMatch = cellHtml.match(/href=["'](https?:\/\/(?:www\.)?google\.com\/maps[^"']+)["']/i);
+  const mapLink = mapMatch ? mapMatch[1].replace(/&amp;/g, '&') : null;
+
+  // Venue link: the anchor href (points to austinshowspot venues page)
+  const venueLink = venueHref && !venueHref.includes('austinshowspot.com/venues/#') ? venueHref : null;
+
+  return {
+    artist: artistRaw,
+    venue: venueName,
+    address: address || venueName,
+    eventLink: eventLink || null,
+    venueLink: venueLink || null,
+    mapLink: mapLink || null,
+    time,
+  };
+}
+
+/**
+ * Format "MM/DD/YYYY" to "Monday, May 18, 2026" (same format as formatDateFromKey).
+ */
+function formatShowspotDate(dateStr) {
+  try {
+    const [mo, d, y] = dateStr.split('/');
+    const date = new Date(`${y}-${mo}-${d}`);
+    return date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  } catch (_) {
+    return dateStr;
+  }
+}
+
+/**
+ * Normalise a string for dedup comparison: lowercase, collapse whitespace, strip punctuation.
+ */
+function normForDedup(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Merge two EventDay[] arrays (primary wins on conflict).
+ * A show from the secondary source is skipped when the same date+venue already has a show
+ * whose artist string fully contains or is contained by the secondary artist (handles
+ * showspot "Artist A, Artist B" vs showlists individual "Artist A" entries).
+ */
+function mergeEventSources(primary, secondary) {
+  // Clone primary
+  const merged = primary.map(day => ({ date: day.date, shows: [...day.shows] }));
+
+  for (const secDay of secondary) {
+    let target = merged.find(d => d.date === secDay.date);
+    if (!target) {
+      merged.push({ date: secDay.date, shows: [...secDay.shows] });
+      continue;
+    }
+    for (const secShow of secDay.shows) {
+      const secVenue = normForDedup(secShow.venue);
+      const secArtist = normForDedup(secShow.artist);
+      const isDuplicate = target.shows.some(s => {
+        if (normForDedup(s.venue) !== secVenue) return false;
+        const sA = normForDedup(s.artist);
+        // Either an exact match or one contains the other (multi-artist billing)
+        return sA === secArtist || secArtist.includes(sA) || sA.includes(secArtist);
+      });
+      if (!isDuplicate) target.shows.push(secShow);
+    }
+  }
+
+  return merged.sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
 /**
