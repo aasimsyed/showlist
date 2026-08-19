@@ -91,6 +91,18 @@ export function formatShortDate(dateString: string): string {
 }
 
 /**
+ * Sort event days chronologically (earliest first). Days with unparseable
+ * dates sort to the end rather than corrupting the order of valid ones.
+ */
+export function sortEventsChronologically(events: EventDay[]): EventDay[] {
+  return [...events].sort((a, b) => {
+    const tsA = parseEventDateToTimestamp(a.date) || Infinity;
+    const tsB = parseEventDateToTimestamp(b.date) || Infinity;
+    return tsA - tsB;
+  });
+}
+
+/**
  * Parse event date string to timestamp for sorting (earliest first). Returns 0 if invalid.
  */
 export function parseEventDateToTimestamp(dateString: string): number {

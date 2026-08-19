@@ -5,6 +5,7 @@ import { apiService } from '../services/api';
 import { useCity } from '../context/CityContext';
 import { EventDay, EventsResponse } from '../types';
 import { getCacheKeys, CACHE_DURATION_MS, AUTO_REFRESH_INTERVAL_MS } from '../utils/constants';
+import { sortEventsChronologically } from '../utils/helpers';
 
 interface UseEventsReturn {
   events: EventDay[];
@@ -40,7 +41,7 @@ export function useEvents(): UseEventsReturn {
         // Use cache if less than cache duration old
         if (age < CACHE_DURATION_MS) {
           const parsedEvents: EventDay[] = JSON.parse(cachedData);
-          setEvents(parsedEvents);
+          setEvents(sortEventsChronologically(parsedEvents));
           setLastUpdated(timestamp);
           return true;
         }
@@ -83,7 +84,7 @@ export function useEvents(): UseEventsReturn {
     try {
       const response = await apiService.fetchEvents(city);
       
-      setEvents(response.events);
+      setEvents(sortEventsChronologically(response.events));
       setLastUpdated(new Date(response.lastUpdated));
       await saveToCache(response);
       
