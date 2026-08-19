@@ -16,6 +16,9 @@ android/
 .env.local
 .env.build
 
+# Apple App Store Connect API keys (never commit)
+*.p8
+
 # IDE
 .vscode/
 .idea/

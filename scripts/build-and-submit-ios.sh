@@ -70,6 +70,12 @@ npx expo prebuild --platform ios --clean
 echo "[2b/7] Ensuring App Store icon (1024x1024) in asset catalog..."
 node "$PROJECT_DIR/scripts/ensure-app-icon-1024.js"
 
+# Step 2c: Prebuild's template pins Release's CODE_SIGN_IDENTITY to "iPhone
+# Developer", which conflicts with automatic signing during archive/export.
+# Strip it after every prebuild so automatic signing can pick distribution certs.
+echo "[2c/7] Patching Release code signing identity..."
+node "$PROJECT_DIR/scripts/patch-release-signing.js"
+
 # Step 3: Pod install
 echo "[3/7] Installing CocoaPods dependencies..."
 cd "$IOS_DIR"
@@ -121,6 +127,13 @@ cat > "$EXPORT_PLIST" << EOF
 </plist>
 EOF
 
+# App Store Connect API key also drives automatic signing (dev/distribution
+# certs + profiles), so no Apple ID needs to be signed into Xcode's Accounts.
+AUTH_ARGS=()
+if [ -n "$API_KEY_ID" ] && [ -n "$API_ISSUER_ID" ] && [ -n "$API_KEY_PATH" ] && [ -f "$API_KEY_PATH" ]; then
+  AUTH_ARGS=(-authenticationKeyPath "$API_KEY_PATH" -authenticationKeyID "$API_KEY_ID" -authenticationKeyIssuerID "$API_ISSUER_ID")
+fi
+
 # Step 5: Archive (DEVELOPMENT_TEAM required for code signing)
 echo "[5/7] Building archive (this may take several minutes)..."
 xcodebuild -workspace "$WORKSPACE" \
@@ -129,15 +142,19 @@ xcodebuild -workspace "$WORKSPACE" \
   -destination "generic/platform=iOS" \
   -archivePath "$ARCHIVE_PATH" \
   -allowProvisioningUpdates \
+  "${AUTH_ARGS[@]}" \
   DEVELOPMENT_TEAM="$TEAM_ID" \
   archive
 
-# Step 6: Export IPA
+# Step 6: Export IPA (needs -allowProvisioningUpdates too, to cloud-sign with
+# a Distribution cert; the API key must have the Admin role for this to work)
 echo "[6/7] Exporting IPA..."
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath "$EXPORT_DIR" \
-  -exportOptionsPlist "$EXPORT_PLIST"
+  -exportOptionsPlist "$EXPORT_PLIST" \
+  -allowProvisioningUpdates \
+  "${AUTH_ARGS[@]}"
 
 # Find the exported IPA (name may vary)
 EXPORTED_IPA=$(find "$EXPORT_DIR" -name "*.ipa" 2>/dev/null | head -1)
@@ -160,12 +177,17 @@ UPLOAD_SUCCESS=false
 
 if [ -n "$API_KEY_ID" ] && [ -n "$API_ISSUER_ID" ] && [ -n "$API_KEY_PATH" ] && [ -f "$API_KEY_PATH" ]; then
   echo "Using App Store Connect API Key..."
+  # altool ignores --apiKeyPath; it only looks up keys by naming convention
+  # in ~/.appstoreconnect/private_keys (among a few other fixed locations).
+  ALTOOL_KEYS_DIR="$HOME/.appstoreconnect/private_keys"
+  mkdir -p "$ALTOOL_KEYS_DIR"
+  cp "$API_KEY_PATH" "$ALTOOL_KEYS_DIR/AuthKey_$API_KEY_ID.p8"
+  chmod 600 "$ALTOOL_KEYS_DIR/AuthKey_$API_KEY_ID.p8"
   if xcrun altool --upload-app \
     --type ios \
     --file "$EXPORTED_IPA" \
     --apiKey "$API_KEY_ID" \
-    --apiIssuer "$API_ISSUER_ID" \
-    --apiKeyPath "$API_KEY_PATH"; then
+    --apiIssuer "$API_ISSUER_ID"; then
     UPLOAD_SUCCESS=true
   fi
 elif [ -n "$APPLE_ID" ] && [ -n "$APP_SPECIFIC_PASSWORD" ]; then

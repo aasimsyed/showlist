@@ -148,6 +148,9 @@ export const CACHE_DURATION_MS = 30 * 60 * 1000; // 30 minutes
 
 2. Submit to App Store Connect
 
+Building and uploading to TestFlight without EAS (local `xcodebuild` + `altool`) is documented
+in [`TESTFLIGHT_NO_EAS.md`](./TESTFLIGHT_NO_EAS.md).
+
 ### Android (Google Play)
 
 1. Build with EAS:
