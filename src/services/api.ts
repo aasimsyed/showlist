@@ -1,6 +1,10 @@
 import axios, { AxiosInstance } from 'axios';
 import { EventsResponse, ShowlistCityId } from '../types';
 import { API_BASE_URL, API_ENDPOINTS } from '../utils/constants';
+import {
+  fetchShowSpotEventsFromDevice,
+  mergeEventDays,
+} from '../utils/showSpot';
 
 export interface CityOption {
   id: ShowlistCityId;
@@ -48,6 +52,13 @@ export interface EventDescriptionEmbeddingsResponse {
   _hint?: string;
 }
 
+type EventsApiResponse = EventsResponse & {
+  sources?: {
+    showlistShows?: number;
+    showSpot?: { ok?: boolean; shows?: number } | null;
+  };
+};
+
 class ApiService {
   private client: AxiosInstance;
 
@@ -62,18 +73,38 @@ class ApiService {
   }
 
   /**
-   * Fetch events from the API for the given city
+   * Fetch events from the API for the given city.
+   * Austin: merge Austin Show Spot on-device when the Worker cannot (SiteGround blocks CF IPs).
    */
   async fetchEvents(city: ShowlistCityId): Promise<EventsResponse> {
     try {
       const url = `${API_ENDPOINTS.EVENTS}?city=${encodeURIComponent(city)}`;
-      const response = await this.client.get<EventsResponse>(url);
-      
+      const response = await this.client.get<EventsApiResponse>(url, {
+        timeout: city === 'austin' ? 30000 : 10000,
+      });
+
       if (!response.data || !response.data.events) {
         throw new Error('Invalid response format');
       }
-      
-      return response.data;
+
+      let events = response.data.events;
+      if (city === 'austin') {
+        const spotOk = response.data.sources?.showSpot?.ok === true;
+        const spotShows = response.data.sources?.showSpot?.shows ?? 0;
+        if (!spotOk || spotShows === 0) {
+          try {
+            const spotEvents = await fetchShowSpotEventsFromDevice();
+            events = mergeEventDays(events, spotEvents);
+          } catch (spotErr) {
+            console.warn('Austin Show Spot on-device merge failed:', spotErr);
+          }
+        }
+      }
+
+      return {
+        events,
+        lastUpdated: response.data.lastUpdated || new Date().toISOString(),
+      };
     } catch (error: any) {
       if (error.response) {
         // Server responded with error

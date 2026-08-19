@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker to parse austin.showlists.net HTML and serve as JSON API
+ * Cloudflare Worker to parse showlists.net (and Austin Show Spot for Austin) and serve as JSON API
  */
 
 const CORS_HEADERS = {
@@ -170,27 +170,64 @@ export default {
         );
       }
 
-      // GET /api/events?city=...: fetch that city's showlist
+      // GET /api/events?city=...: fetch that city's showlist (Austin also merges Austin Show Spot)
       const cityParam = (url.searchParams.get('city') || 'austin').toLowerCase().replace(/[^a-z-]/g, '') || 'austin';
       const showlistUrl = `https://${cityParam}.showlists.net/`;
+      const showlistFetchOpts = {
+        headers: { 'User-Agent': 'ShowlistApp/1.0' },
+        cf: { cacheTtl: 300, cacheEverything: true },
+      };
 
-      const response = await fetch(showlistUrl, {
-        headers: {
-          'User-Agent': 'ShowlistApp/1.0',
-        },
-        cf: {
-          cacheTtl: 300,
-          cacheEverything: true,
-        },
-      });
+      const showlistPromise = fetch(showlistUrl, showlistFetchOpts);
+      const mergeShowSpot = cityParam === 'austin';
+
+      const response = await showlistPromise;
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const html = await response.text();
-      
-      const events = parseShowlistHTML(html);
+      let events = parseShowlistHTML(html);
+      const sources = {
+        showlistShows: countShows(events),
+        showSpot: null,
+      };
+
+      if (mergeShowSpot) {
+        const spotMeta = {
+          ok: false,
+          status: 0,
+          htmlBytes: 0,
+          hasTable: false,
+          shows: 0,
+          error: null,
+          via: null,
+        };
+        try {
+          const spot = await fetchAustinShowSpotHtml();
+          spotMeta.status = spot.status;
+          spotMeta.via = spot.via;
+          spotMeta.htmlBytes = spot.html.length;
+          spotMeta.hasTable = /id=["']tablepress-\d+["']/i.test(spot.html);
+          if (spot.status === 200 && spotMeta.hasTable) {
+            spotMeta.ok = true;
+            const spotEvents = parseAustinShowSpotHTML(spot.html);
+            spotMeta.shows = countShows(spotEvents);
+            events = mergeEventDays(events, spotEvents);
+          } else {
+            spotMeta.error =
+              spot.status !== 200
+                ? `unexpected status ${spot.status}`
+                : 'tablepress table missing';
+            console.error('Austin Show Spot unusable', spotMeta);
+          }
+        } catch (spotErr) {
+          spotMeta.error = String(spotErr && spotErr.message ? spotErr.message : spotErr);
+          console.error('Austin Show Spot merge failed:', spotErr);
+        }
+        sources.showSpot = spotMeta;
+      }
 
       if (events.length === 0) {
         throw new Error('No events found in HTML');
@@ -200,6 +237,7 @@ export default {
         JSON.stringify({
           events,
           lastUpdated: new Date().toISOString(),
+          sources,
         }),
         {
           headers: {
@@ -947,5 +985,292 @@ function cleanHTML(html) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&#8217;/g, "'")
+    .replace(/&#8216;/g, "'")
+    .replace(/&#8220;/g, '"')
+    .replace(/&#8221;/g, '"')
     .trim();
+}
+
+function countShows(events) {
+  let n = 0;
+  for (const day of events || []) n += (day.shows || []).length;
+  return n;
+}
+
+/**
+ * SiteGround bot protection (sgcaptcha) blocks Cloudflare Worker IPs on the HTML homepage
+ * with HTTP 202 + meta refresh. The WP REST page payload still includes the TablePress HTML.
+ */
+async function fetchAustinShowSpotHtml() {
+  const headers = {
+    'User-Agent': 'ShowlistApp/1.0',
+    Accept: 'application/json,text/html;q=0.9',
+  };
+  const cf = { cacheTtl: 300, cacheEverything: true };
+
+  // Homepage page id observed on austinshowspot.com (slug title: Shows)
+  const apiUrl = 'https://www.austinshowspot.com/wp-json/wp/v2/pages/1485';
+  const apiRes = await fetch(apiUrl, { headers, cf });
+  if (apiRes.status === 200) {
+    const data = await apiRes.json();
+    const rendered = data?.content?.rendered;
+    if (typeof rendered === 'string' && /tablepress-/i.test(rendered)) {
+      return { status: 200, html: rendered, via: 'wp-json' };
+    }
+  }
+
+  const htmlRes = await fetch('https://www.austinshowspot.com/', {
+    headers: { ...headers, Accept: 'text/html' },
+    cf: { cacheTtl: 0, cacheEverything: false },
+  });
+  const html = await htmlRes.text();
+  return { status: htmlRes.status, html, via: 'html' };
+}
+
+/**
+ * Parse Austin Show Spot TablePress HTML into EventDay[] (same shape as showlists).
+ * Uses indexOf/split instead of large nested regexes (Worker CPU + reliability).
+ */
+function parseAustinShowSpotHTML(html) {
+  const tableHtml = extractTablepressHtml(html);
+  if (!tableHtml) return [];
+
+  const eventsByDate = {};
+  const rowChunks = tableHtml.split(/<tr\b/i);
+  for (let i = 1; i < rowChunks.length; i++) {
+    const chunk = rowChunks[i];
+    const rowOpenEnd = chunk.indexOf('>');
+    if (rowOpenEnd < 0) continue;
+    const rowOpen = chunk.slice(0, rowOpenEnd);
+    const rowNumMatch = rowOpen.match(/row-(\d+)/i);
+    const rowNum = rowNumMatch ? parseInt(rowNumMatch[1], 10) : i;
+    if (rowNum <= 1) continue;
+
+    const rowEnd = chunk.indexOf('</tr>');
+    const rowInner = chunk.slice(rowOpenEnd + 1, rowEnd < 0 ? undefined : rowEnd);
+    const byCol = extractTablepressColumns(rowInner);
+
+    const bandsHtml = byCol['3'];
+    const dateMdY = cleanHTML(byCol['5'] || '');
+    if (!bandsHtml || !dateMdY) continue;
+
+    const fullDateRaw = cleanHTML(byCol['1'] || '');
+    const dateKey = dateKeyFromMdY(dateMdY);
+    if (!dateKey) continue;
+
+    const show = parseShowSpotBandsCell(bandsHtml);
+    if (!show) continue;
+
+    if (!eventsByDate[dateKey]) {
+      eventsByDate[dateKey] = {
+        date: fullDateRaw || formatDateFromKey(dateKey),
+        shows: [],
+      };
+    } else if (fullDateRaw && !/^[A-Za-z]+,/.test(eventsByDate[dateKey].date)) {
+      eventsByDate[dateKey].date = fullDateRaw;
+    }
+    eventsByDate[dateKey].shows.push(show);
+  }
+
+  return Object.keys(eventsByDate)
+    .sort()
+    .map((k) => eventsByDate[k]);
+}
+
+function extractTablepressHtml(html) {
+  const idMatch = html.match(/id=["']tablepress-\d+["']/i);
+  if (!idMatch || idMatch.index == null) return null;
+  const start = html.lastIndexOf('<table', idMatch.index);
+  if (start < 0) return null;
+  const end = html.indexOf('</table>', idMatch.index);
+  if (end < 0) return null;
+  return html.slice(start, end + '</table>'.length);
+}
+
+function extractTablepressColumns(rowInner) {
+  const byCol = {};
+  const parts = rowInner.split(/<t[dh]\b/i);
+  for (let i = 1; i < parts.length; i++) {
+    const part = parts[i];
+    const openEnd = part.indexOf('>');
+    if (openEnd < 0) continue;
+    const open = part.slice(0, openEnd);
+    const colMatch = open.match(/column-(\d+)/i);
+    if (!colMatch) continue;
+    const close = /^h\b/i.test(open) ? '</th>' : '</td>';
+    const closeIdx = part.toLowerCase().indexOf(close);
+    byCol[colMatch[1]] = part.slice(openEnd + 1, closeIdx < 0 ? undefined : closeIdx);
+  }
+  return byCol;
+}
+
+/** MM/DD/YYYY -> YYYYMMDD */
+function dateKeyFromMdY(mdy) {
+  const m = String(mdy).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  return `${m[3]}${m[1].padStart(2, '0')}${m[2].padStart(2, '0')}`;
+}
+
+const MONTH_NAMES = [
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+];
+
+/**
+ * Display date -> YYYYMMDD (handles ordinals). Uses an explicit month
+ * lookup instead of native Date parsing, kept in sync with the identical
+ * client-side implementation in src/utils/showSpot.ts, so a date parses to
+ * the same key on both sides of the merge regardless of JS engine.
+ */
+function dateKeyFromDisplay(dateStr) {
+  if (!dateStr) return null;
+  const cleaned = String(dateStr).replace(/(\d+)(st|nd|rd|th)/gi, '$1').trim();
+  const m = cleaned.match(/([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
+  if (!m) return null;
+  const monthIdx = MONTH_NAMES.indexOf(m[1].toLowerCase());
+  if (monthIdx < 0) return null;
+  const day = String(parseInt(m[2], 10)).padStart(2, '0');
+  const month = String(monthIdx + 1).padStart(2, '0');
+  return `${m[3]}${month}${day}`;
+}
+
+function parseShowSpotBandsCell(bandsHtml) {
+  try {
+    const doorsMatch = bandsHtml.match(/doors\s+at\s+(\d{1,2}:\d{2}\s*(?:am|pm))/i);
+    let time = doorsMatch ? doorsMatch[1].replace(/\s+/g, '').toLowerCase() : null;
+
+    const startMatch = bandsHtml.match(/<span\s+class=["']start["']>\s*(\d{1,2}\/\d{1,2}\/\d{4})\s+(\d{1,2}):(\d{2})\s*<\/span>/i);
+    if (!time && startMatch) {
+      time = formatHourMinute12(parseInt(startMatch[2], 10), parseInt(startMatch[3], 10));
+    }
+
+    const ticketMatch =
+      bandsHtml.match(/<a[^>]*href=["']([^"']+)["'][^>]*title=["']Tickets link["'][^>]*>/i) ||
+      bandsHtml.match(/<a[^>]*title=["']Tickets link["'][^>]*href=["']([^"']+)["'][^>]*>/i);
+    const infoMatch =
+      bandsHtml.match(/<a[^>]*href=["']([^"']+)["'][^>]*title=["']Information link["'][^>]*>/i) ||
+      bandsHtml.match(/<a[^>]*title=["']Information link["'][^>]*href=["']([^"']+)["'][^>]*>/i) ||
+      bandsHtml.match(/<a[^>]*href=["']([^"']+)["'][^>]*title=["'](?:Facebook event|Instagram post\/flyer)["'][^>]*>/i) ||
+      bandsHtml.match(/<a[^>]*title=["'](?:Facebook event|Instagram post\/flyer)["'][^>]*href=["']([^"']+)["'][^>]*>/i);
+
+    const eventLink = (ticketMatch && ticketMatch[1]) || (infoMatch && infoMatch[1]) || null;
+
+    // Primary venue anchor is the first link whose text is not an icon-only link (ticket/info).
+    // Pattern: "Artists at <a ...>Venue</a>, doors at ..."
+    const atVenueMatch = bandsHtml.match(
+      /^([\s\S]*?)\s+at\s+<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>\s*,?\s*doors\s+at/i
+    );
+    if (!atVenueMatch) return null;
+
+    const artist = cleanHTML(atVenueMatch[1]).replace(/\s+/g, ' ').trim();
+    const venueHref = atVenueMatch[2].trim();
+    const venueRaw = cleanHTML(atVenueMatch[3]).replace(/\s+/g, ' ').trim();
+    if (!artist || !venueRaw) return null;
+
+    const isMap =
+      /google\.com\/maps|maps\.app\.goo\.gl|maps\.google\./i.test(venueHref);
+    let venue = venueRaw;
+    let address = venueRaw;
+    const addrSplit = venueRaw.match(/^(.+?),\s+(\d+.+)$/);
+    if (addrSplit) {
+      venue = addrSplit[1].trim();
+      address = addrSplit[2].trim();
+    }
+
+    return {
+      artist,
+      venue,
+      address: address || venue,
+      eventLink,
+      venueLink: isMap ? null : venueHref,
+      mapLink: isMap ? venueHref : null,
+      time,
+    };
+  } catch (e) {
+    console.error('Error parsing Show Spot row:', e);
+    return null;
+  }
+}
+
+function formatHourMinute12(hour24, minute) {
+  const h = ((hour24 + 11) % 12) + 1;
+  const ampm = hour24 >= 12 ? 'pm' : 'am';
+  return `${h}:${String(minute).padStart(2, '0')}${ampm}`;
+}
+
+function normalizeShowKey(show) {
+  let artist = String(show.artist || '')
+    .toLowerCase()
+    .replace(/&amp;/g, '&')
+    .replace(/\([^)]*\)/g, ' ');
+  const headliner = artist
+    .split(/\s*,\s*|\s+with\s+|\s+w\/\s+|\s+\/\s+|\s+feat\.?\s+|\s+and\s+the\s+/i)[0]
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const venue = String(show.venue || '')
+    .toLowerCase()
+    .replace(/^the\s+/, '')
+    .replace(/&amp;/g, '&')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `${headliner}|${venue}`;
+}
+
+/**
+ * Merge secondary EventDay[] into primary. Prefer primary on duplicates; fill missing links/time.
+ */
+function mergeEventDays(primary, secondary) {
+  if (!secondary || secondary.length === 0) return primary || [];
+  if (!primary || primary.length === 0) return secondary;
+
+  const byKey = new Map();
+  for (const day of primary) {
+    const key = dateKeyFromDisplay(day.date) || day.date;
+    const keys = new Set((day.shows || []).map(normalizeShowKey));
+    byKey.set(key, {
+      date: day.date,
+      shows: [...(day.shows || [])],
+      keys,
+    });
+  }
+
+  for (const day of secondary) {
+    const key = dateKeyFromDisplay(day.date) || dateKeyFromMdY(day.date) || day.date;
+    let entry = byKey.get(key);
+    if (!entry) {
+      entry = { date: day.date, shows: [], keys: new Set() };
+      byKey.set(key, entry);
+    } else if (day.date && /^[A-Za-z]+,\s+[A-Za-z]+/.test(day.date)) {
+      // Prefer Show Spot's FullDate when primary date string is odd
+      if (!entry.date || entry.date.length < day.date.length) entry.date = day.date;
+    }
+
+    for (const show of day.shows || []) {
+      const sk = normalizeShowKey(show);
+      if (entry.keys.has(sk)) {
+        const existing = entry.shows.find((s) => normalizeShowKey(s) === sk);
+        if (existing) enrichShow(existing, show);
+        continue;
+      }
+      entry.shows.push(show);
+      entry.keys.add(sk);
+    }
+  }
+
+  return [...byKey.entries()]
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    .map(([, v]) => ({ date: v.date, shows: v.shows }));
+}
+
+function enrichShow(target, source) {
+  if (!target.eventLink && source.eventLink) target.eventLink = source.eventLink;
+  if (!target.venueLink && source.venueLink) target.venueLink = source.venueLink;
+  if (!target.mapLink && source.mapLink) target.mapLink = source.mapLink;
+  if (!target.time && source.time) target.time = source.time;
+  if ((!target.address || target.address === target.venue) && source.address && source.address !== source.venue) {
+    target.address = source.address;
+  }
 }

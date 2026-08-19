@@ -1,6 +1,8 @@
 # Showlist Proxy - Cloudflare Worker
 
-This Cloudflare Worker fetches HTML from austin.showlists.net, parses it, and serves structured JSON data to the mobile app.
+This Cloudflare Worker fetches HTML from `{city}.showlists.net`, parses it, and serves structured JSON to the mobile app.
+
+For **Austin**, the Worker also *attempts* to merge [Austin Show Spot](https://www.austinshowspot.com/). SiteGround bot protection (`sgcaptcha`) blocks Cloudflare Worker IPs, so production merges usually happen **on-device** in the app (`src/utils/showSpot.ts`) via the WordPress REST page API.
 
 ## Setup
 
