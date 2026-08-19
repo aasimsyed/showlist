@@ -1,52 +1,64 @@
 # Deploying the Cloudflare Worker
 
+This app expects the Worker at:
+
+`https://showlist-proxy.aasim-ss.workers.dev`
+
+`npm run deploy` **refuses to publish** if Wrangler is logged into a different Cloudflare account (for example `yourfrugalfriendetsy`).
+
 ## Prerequisites
 
-1. A Cloudflare account (free tier works fine)
-   - Sign up at: https://dash.cloudflare.com/sign-up
+1. The Cloudflare account that owns the `aasim-ss` workers.dev subdomain
+2. Node.js 18+
+
+## One-time: bind this repo to the correct Cloudflare login
+
+If you use multiple Cloudflare accounts on this machine, create a named auth profile and bind it to `backend/`:
+
+```bash
+cd backend
+npx wrangler auth create showlist-aasim
+# Sign in with the account that owns *.aasim-ss.workers.dev
+npx wrangler auth activate showlist-aasim .
+npx wrangler whoami --json
+```
+
+Confirm the workers.dev subdomain is `aasim-ss`:
+
+```bash
+npm run deploy:check
+```
+
+Optional hard pin: put that account’s ID in `wrangler.toml` as `account_id = "..."` (see comment in the file).
 
 ## Step-by-Step Deployment
 
-### 1. Login to Cloudflare
+### 1. Login (if not using a bound profile)
 
 ```bash
 cd backend
 npx wrangler login
 ```
 
-This will open your browser to authenticate with Cloudflare. Click "Allow" to authorize.
+Sign in with the **aasim-ss** account, not another project’s Cloudflare login.
 
 ### 2. Deploy the Worker
 
 ```bash
-npx wrangler deploy
-```
-
-Or use the npm script:
-```bash
 npm run deploy
 ```
 
-### 3. Get Your Worker URL
+This runs the account check, then `wrangler deploy`.
 
-After deployment, you'll see output like:
+### 3. Confirm the URL
+
+Deploy output should show:
 
 ```
-✨  Success! Published showlist-proxy
-   https://showlist-proxy.YOUR-ACCOUNT.workers.dev
+https://showlist-proxy.aasim-ss.workers.dev
 ```
 
-**Copy this URL** - you'll need it for the next step.
-
-### 4. Update the App Configuration
-
-Edit `../src/utils/constants.ts` and update the API URL:
-
-```typescript
-export const API_BASE_URL = 'https://showlist-proxy.YOUR-ACCOUNT.workers.dev';
-```
-
-Replace `YOUR-ACCOUNT` with your actual subdomain from step 3.
+The mobile app already defaults to that URL in `src/utils/constants.ts`.
 
 ### 5. (Optional) Set Gemini API key for artist-genre fallback
 
@@ -61,14 +73,10 @@ Paste your Gemini API key when prompted. **Do not commit the key to the repo.** 
 
 ### 6. Test the API
 
-You can test the worker directly in your browser:
-
 ```
-https://showlist-proxy.YOUR-ACCOUNT.workers.dev/api/events
-https://showlist-proxy.YOUR-ACCOUNT.workers.dev/api/artist-genre?artist=Black%20Pumas
+https://showlist-proxy.aasim-ss.workers.dev/api/events
+https://showlist-proxy.aasim-ss.workers.dev/api/artist-genre?artist=Black%20Pumas
 ```
-
-You should see JSON data (events, or artist genres/mood/energy).
 
 ## Development Mode
 
@@ -86,6 +94,12 @@ This starts a local server (usually at `http://localhost:8787`).
 - Run `npx wrangler login` again
 - Make sure you're logged into Cloudflare in your browser
 
+### "Cloudflare account check failed" / wrong workers.dev subdomain
+- You are logged into a different Cloudflare account than `aasim-ss`
+- Run `npx wrangler auth create showlist-aasim`, sign in to the aasim-ss account, then `npx wrangler auth activate showlist-aasim .`
+- Or `npx wrangler logout` and `npx wrangler login` with the correct account
+- Verify with `npm run deploy:check`
+
 ### "Worker name already exists"
 - The worker name is set in `wrangler.toml`
 - Either change the name or delete the existing worker from Cloudflare dashboard
@@ -101,17 +115,11 @@ This starts a local server (usually at `http://localhost:8787`).
 
 ## Updating the Worker
 
-After making changes to `src/index.js`:
-
 ```bash
-npx wrangler deploy
+npm run deploy
 ```
 
-The update will be live within seconds.
-
 ## Viewing Logs
-
-To see real-time logs from your worker:
 
 ```bash
 npx wrangler tail
@@ -119,8 +127,6 @@ npx wrangler tail
 
 ## Cloudflare Dashboard
 
-You can also manage your worker from the Cloudflare dashboard:
 - Go to: https://dash.cloudflare.com
 - Navigate to "Workers & Pages"
 - Find "showlist-proxy"
-- View analytics, logs, and settings

@@ -1,6 +1,7 @@
+# showlist-proxy: Cloudflare Worker for showlists (+ Austin Show Spot merge)
 name = "showlist-proxy"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
-[env.production]
-name = "showlist-proxy"
+# Pin deploys to the account that owns https://showlist-proxy.aasim-ss.workers.dev
+account_id = "950035267d1186d83269e8b8eb50e572"
