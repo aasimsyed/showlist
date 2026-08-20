@@ -81,10 +81,11 @@ export function useRecommendations(limit: number = 10) {
     loadCached();
   }, []);
 
-  // Calculate recommendations when events/favorites change; persist for next session.
-  // Defer until after transitions (e.g. tab switch) so UI stays responsive.
+  // Local favorite overlap only. Network/TF ranking was blocking this tab indefinitely.
   const calculateRecommendations = useCallback(async () => {
     if (events.length === 0 || favorites.length < 3) {
+      setLoading(false);
+      if (favorites.length < 3) setRecommendations([]);
       return;
     }
 
@@ -102,16 +103,7 @@ export function useRecommendations(limit: number = 10) {
   }, [events, favorites, limit, city]);
 
   useEffect(() => {
-    let task: { cancel: () => void } | null = null;
-    const t = setTimeout(() => {
-      task = InteractionManager.runAfterInteractions(() => {
-        calculateRecommendations();
-      });
-    }, 500);
-    return () => {
-      clearTimeout(t);
-      if (task) task.cancel();
-    };
+    calculateRecommendations();
   }, [calculateRecommendations]);
 
   return { recommendations, loading, refresh: calculateRecommendations };

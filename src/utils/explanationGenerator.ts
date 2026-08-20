@@ -1,5 +1,5 @@
 import { Show } from '../types';
-import { UserProfile } from './userBehaviorTracker';
+import type { UserProfile } from './userBehaviorTracker';
 
 export interface RecommendationExplanation {
   explanation: string;

@@ -1,30 +1,66 @@
 import { Show, EventDay } from '../types';
-import { getUserProfile, UserProfile } from './userBehaviorTracker';
+import { updateUserProfile, UserProfile } from './userBehaviorTracker';
 import { mlService } from '../services/mlService';
 import { getArtistGenre } from '../services/artistGenreService';
 import { generateExplanation, RecommendationExplanation } from './explanationGenerator';
-import { apiService } from '../services/api';
+import { apiService, ArtistGenreInfo } from '../services/api';
 import { showKey, meanVector, cosineSimilarity, cosineToZeroOne } from './twoTowerScoring';
 import { getEmbeddingMap as getCachedEmbeddingMap, setEmbeddingMap as setCachedEmbeddingMap } from './embeddingCache';
 import { parseEventDateToTimestamp } from './helpers';
+import { scoreRecommendationsFromProfile } from './scoreRecommendationsFromProfile';
 
 const EMBEDDING_BATCH_SIZE = 30;
 
 const MAX_ARTISTS_FOR_GENRE_PROFILE = 20;
 
-/** Build user genre counts from favorited artists (cached lookups). */
+/** Cap on simultaneous in-flight genre lookups so we don't serialize one artist at a time. */
+const GENRE_FETCH_CONCURRENCY = 8;
+
+/**
+ * Run `fn` over `items` with at most `limit` calls in flight at once. Used instead of a plain
+ * for-await loop for per-artist network lookups, which otherwise round-trip one at a time and
+ * can turn a few dozen uncached artists into a multi-minute wait.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/** Fetch genre info for each unique artist in parallel (bounded), falling back to empty genres on failure. */
+async function fetchArtistGenreMap(artists: string[]): Promise<Map<string, ArtistGenreInfo>> {
+  const uniqueArtists = [...new Set(artists)];
+  const map = new Map<string, ArtistGenreInfo>();
+  await mapWithConcurrency(uniqueArtists, GENRE_FETCH_CONCURRENCY, async (artist) => {
+    try {
+      map.set(artist, await getArtistGenre(artist));
+    } catch (_) {
+      map.set(artist, { artist, genres: [], source: 'musicbrainz' });
+    }
+  });
+  return map;
+}
+
+/** Build user genre counts from favorited artists (cached lookups, fetched in parallel). */
 export async function buildUserGenreProfile(favorites: Show[]): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
   const uniqueArtists = [...new Set(favorites.map((s) => s.artist))].slice(0, MAX_ARTISTS_FOR_GENRE_PROFILE);
-  for (const artist of uniqueArtists) {
-    try {
-      const info = await getArtistGenre(artist);
-      for (const g of info.genres || []) {
-        const genre = g.trim().toLowerCase();
-        if (genre) counts[genre] = (counts[genre] || 0) + 1;
-      }
-    } catch (_) {
-      // skip failed lookups
+  const genreMap = await fetchArtistGenreMap(uniqueArtists);
+  for (const info of genreMap.values()) {
+    for (const g of info.genres || []) {
+      const genre = g.trim().toLowerCase();
+      if (genre) counts[genre] = (counts[genre] || 0) + 1;
     }
   }
   return counts;
@@ -151,116 +187,14 @@ export async function getMLRecommendations(
   events: EventDay[],
   favorites: Show[],
   limit: number = 10,
-  city: string = ''
+  _city: string = ''
 ): Promise<MLRecommendationScore[]> {
-  const profile = await getUserProfile();
-
-  if (!profile || profile.totalInteractions < 3) {
+  if (favorites.length < 3) {
     return [];
   }
 
-  const scores: MLRecommendationScore[] = [];
-  const favoriteKeys = new Set(favorites.map(s => `${s.artist}|${s.venue}|${s.time || ''}`));
-  const userFeatures = convertProfileToFeatures(profile);
-  const userGenreProfile = await buildUserGenreProfile(favorites);
-
-  // Two-tower: collect all candidate + favorite (artist, venue), fetch embeddings, build user vec
-  const embeddingItems: { artist: string; venue: string }[] = [];
-  for (const day of events) {
-    for (const show of day.shows) {
-      embeddingItems.push({ artist: show.artist, venue: show.venue });
-    }
-  }
-  for (const s of favorites) {
-    embeddingItems.push({ artist: s.artist, venue: s.venue });
-  }
-  let embeddingMap = new Map<string, number[]>();
-  let userEmbedding: number[] = [];
-  if (city && city.trim()) {
-    try {
-      embeddingMap = await fetchEmbeddingMap(city, embeddingItems);
-      const favVecs = favorites
-        .map((s) => embeddingMap.get(showKey(s.artist, s.venue)))
-        .filter((v): v is number[] => Array.isArray(v) && v.length > 0);
-      userEmbedding = meanVector(favVecs);
-    } catch (err) {
-      console.warn('Two-tower embeddings failed', err);
-    }
-  }
-
-  for (const day of events) {
-    for (const show of day.shows) {
-      const candidateKey = `${show.artist}|${show.venue}|${show.time || ''}`;
-      if (favoriteKeys.has(candidateKey)) continue;
-
-      const eventFeatures = convertShowToFeatures(show);
-      let mlScore = 0;
-      try {
-        mlScore = await mlService.predictScore(userFeatures, eventFeatures);
-      } catch (error) {
-        console.error('Error getting ML score:', error);
-      }
-
-      let artistGenreInfo = { artist: show.artist, genres: [] as string[], source: 'musicbrainz' as const };
-      try {
-        artistGenreInfo = await getArtistGenre(show.artist);
-      } catch (_) {
-        // use empty genres
-      }
-      const genreMatch = genreMatchScore(userGenreProfile, artistGenreInfo.genres);
-
-      const explanation = generateExplanation(
-        show,
-        profile,
-        mlScore,
-        day.date,
-        genreMatch > 0 ? artistGenreInfo.genres : undefined,
-        Object.keys(userGenreProfile).length > 0 ? userGenreProfile : undefined
-      );
-
-      const artistCount = profile.favoriteArtists[show.artist] || 0;
-      const venueCount = profile.favoriteVenues[show.venue] || 0;
-      let ruleBasedScore = 0;
-      ruleBasedScore += Math.min(artistCount * 20, 40);
-      ruleBasedScore += Math.min(venueCount * 15, 30);
-
-      let twoTowerScore = 0;
-      if (userEmbedding.length > 0) {
-        const itemEmb = embeddingMap.get(showKey(show.artist, show.venue));
-        if (itemEmb && itemEmb.length > 0) {
-          twoTowerScore = cosineToZeroOne(cosineSimilarity(userEmbedding, itemEmb));
-        }
-      }
-
-      // Combine: two-tower (description) 35%, rule-based 35%, genre 20%, legacy ML 10%
-      // ruleBasedScore is 0–70; *0.5 gives 0–35 to match prior scale
-      const finalScore =
-        twoTowerScore * 100 * 0.35 +
-        ruleBasedScore * 0.5 +
-        genreMatch * 100 * 0.2 +
-        mlScore * 100 * 0.1;
-
-      if (finalScore > 20 || explanation.reasons.length > 0) {
-        scores.push({
-          show,
-          score: finalScore,
-          mlScore,
-          explanation,
-          eventDate: day.date,
-        });
-      }
-    }
-  }
-
-  // Sort by date earliest first, then by score descending within same day
-  return scores
-    .sort((a, b) => {
-      const tA = parseEventDateToTimestamp(a.eventDate || '');
-      const tB = parseEventDateToTimestamp(b.eventDate || '');
-      if (tA !== tB) return tA - tB;
-      return b.score - a.score;
-    })
-    .slice(0, limit);
+  const profile = await updateUserProfile(favorites);
+  return scoreRecommendationsFromProfile(events, favorites, profile, limit);
 }
 
 export function isRecommended(
