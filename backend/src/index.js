@@ -171,6 +171,16 @@ export default {
       }
 
       // GET /api/events?city=...: fetch that city's showlist (Austin also merges Austin Show Spot)
+      // Cache-Control alone doesn't make Cloudflare's edge cache a Worker-generated response, so
+      // the HTML parse (CPU-heavy) reran on every request and intermittently hit the CPU time
+      // limit (Error 1102 / 503). Caching the built response via the Cache API means that cost
+      // is paid once per city per 5-minute window instead of on every request.
+      const cacheRequest = new Request(url.toString(), { method: 'GET' });
+      const cachedEvents = await caches.default.match(cacheRequest);
+      if (cachedEvents) {
+        return new Response(cachedEvents.body, { headers: cachedEvents.headers });
+      }
+
       const cityParam = (url.searchParams.get('city') || 'austin').toLowerCase().replace(/[^a-z-]/g, '') || 'austin';
       const showlistUrl = `https://${cityParam}.showlists.net/`;
       const showlistFetchOpts = {
@@ -233,7 +243,7 @@ export default {
         throw new Error('No events found in HTML');
       }
 
-      return new Response(
+      const eventsResponse = new Response(
         JSON.stringify({
           events,
           lastUpdated: new Date().toISOString(),
@@ -247,6 +257,8 @@ export default {
           },
         }
       );
+      await caches.default.put(cacheRequest, eventsResponse.clone());
+      return eventsResponse;
 
     } catch (error) {
       console.error('Error fetching/parsing showlist:', error);
