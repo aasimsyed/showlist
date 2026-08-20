@@ -1,19 +1,23 @@
 import { Show, EventDay } from '../types';
-import { updateUserProfile, UserProfile } from './userBehaviorTracker';
-import { mlService } from '../services/mlService';
-import { getArtistGenre } from '../services/artistGenreService';
-import { generateExplanation, RecommendationExplanation } from './explanationGenerator';
+import { getUserProfile, updateUserProfile, UserProfile } from './userBehaviorTracker';
+import { getArtistGenre, getCachedArtistGenreMap } from '../services/artistGenreService';
 import { apiService, ArtistGenreInfo } from '../services/api';
-import { showKey, meanVector, cosineSimilarity, cosineToZeroOne } from './twoTowerScoring';
+import { showKey, meanVector } from './twoTowerScoring';
 import { getEmbeddingMap as getCachedEmbeddingMap, setEmbeddingMap as setCachedEmbeddingMap } from './embeddingCache';
-import { parseEventDateToTimestamp } from './helpers';
-import { scoreRecommendationsFromProfile } from './scoreRecommendationsFromProfile';
+import type { RecommendationExplanation } from './explanationGenerator';
+import {
+  scoreRecommendationsFromProfile,
+  countsFromGenreMap,
+  pickChronologicalArtists,
+  pickEmbeddingTargets,
+} from './scoreRecommendationsFromProfile';
+
+export { genreMatchScore } from './scoreRecommendationsFromProfile';
 
 const EMBEDDING_BATCH_SIZE = 30;
-
 const MAX_ARTISTS_FOR_GENRE_PROFILE = 20;
-
-/** Cap on simultaneous in-flight genre lookups so we don't serialize one artist at a time. */
+const MAX_CANDIDATE_ARTISTS_FOR_GENRE = 24;
+const REFINE_TIMEOUT_MS = 5000;
 const GENRE_FETCH_CONCURRENCY = 8;
 
 /**
@@ -36,6 +40,22 @@ async function mapWithConcurrency<T, R>(
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      }
+    );
+  });
 }
 
 /** Fetch genre info for each unique artist in parallel (bounded), falling back to empty genres on failure. */
@@ -64,18 +84,6 @@ export async function buildUserGenreProfile(favorites: Show[]): Promise<Record<s
     }
   }
   return counts;
-}
-
-/** Jaccard-like overlap: share of show genres that user likes (0–1). */
-export function genreMatchScore(userGenreCounts: Record<string, number>, showGenres: string[]): number {
-  if (showGenres.length === 0 || Object.keys(userGenreCounts).length === 0) return 0;
-  const userSet = new Set(Object.keys(userGenreCounts));
-  let matches = 0;
-  for (const g of showGenres) {
-    const genre = g.trim().toLowerCase();
-    if (userSet.has(genre)) matches++;
-  }
-  return matches / Math.max(showGenres.length, 1);
 }
 
 export interface MLRecommendationScore {
@@ -148,11 +156,12 @@ export function convertShowToFeatures(show: Show): {
 }
 
 /**
- * Fetch description embeddings for unique (artist, venue) pairs; use cache, then batch-fetch only missing.
+ * Cache first, then at most one network batch. `timeoutMs` caps the Worker/Gemini wait.
  */
 async function fetchEmbeddingMap(
   city: string,
-  items: { artist: string; venue: string }[]
+  items: { artist: string; venue: string }[],
+  timeoutMs: number = REFINE_TIMEOUT_MS
 ): Promise<Map<string, number[]>> {
   const seen = new Set<string>();
   const unique: { artist: string; venue: string }[] = [];
@@ -163,22 +172,25 @@ async function fetchEmbeddingMap(
     unique.push({ artist: it.artist, venue: it.venue });
   }
   const map = new Map<string, number[]>(getCachedEmbeddingMap(unique));
+  if (!city.trim()) return map;
   const missing = unique.filter((it) => !map.has(showKey(it.artist, it.venue)));
+  if (!missing.length) return map;
+
+  const chunk = missing.slice(0, EMBEDDING_BATCH_SIZE);
   const toCache: { artist: string; venue: string; embedding: number[] }[] = [];
-  for (let i = 0; i < missing.length; i += EMBEDDING_BATCH_SIZE) {
-    const chunk = missing.slice(i, i + EMBEDDING_BATCH_SIZE);
-    try {
-      const res = await apiService.fetchEventDescriptionEmbeddings(city, chunk);
+  await withTimeout(
+    apiService.fetchEventDescriptionEmbeddings(city, chunk, timeoutMs).then((res) => {
       for (const e of res.embeddings || []) {
         if (e.embedding && e.embedding.length > 0) {
           map.set(showKey(e.artist, e.venue), e.embedding);
           toCache.push({ artist: e.artist, venue: e.venue, embedding: e.embedding });
         }
       }
-    } catch (err) {
-      console.warn('Embedding batch failed', err);
-    }
-  }
+      return true;
+    }),
+    timeoutMs,
+    false
+  );
   if (toCache.length > 0) setCachedEmbeddingMap(toCache);
   return map;
 }
@@ -195,6 +207,80 @@ export async function getMLRecommendations(
 
   const profile = await updateUserProfile(favorites);
   return scoreRecommendationsFromProfile(events, favorites, profile, limit);
+}
+
+/**
+ * Second pass: MusicBrainz/Gemini genres plus description embeddings for a small
+ * candidate set. Must never block For You; caller shows local recs first and applies this if it returns.
+ */
+export async function refineRecommendations(
+  events: EventDay[],
+  favorites: Show[],
+  limit: number = 10,
+  city: string = ''
+): Promise<MLRecommendationScore[]> {
+  if (favorites.length < 3) return [];
+  const profile = await getUserProfile();
+  if (!profile) return [];
+
+  const favoriteArtists = [...new Set(favorites.map((s) => s.artist))].slice(
+    0,
+    MAX_ARTISTS_FOR_GENRE_PROFILE
+  );
+  const candidateArtists = pickChronologicalArtists(
+    events,
+    new Set(favoriteArtists),
+    MAX_CANDIDATE_ARTISTS_FOR_GENRE
+  );
+  const artistsToResolve = [...favoriteArtists, ...candidateArtists];
+
+  const genreMap = await getCachedArtistGenreMap(artistsToResolve);
+  const missingArtists = artistsToResolve.filter((a) => !genreMap.has(a));
+  const embeddingItems = pickEmbeddingTargets(favorites, events, EMBEDDING_BATCH_SIZE);
+
+  const genreFetch = missingArtists.length
+    ? withTimeout(
+        mapWithConcurrency(missingArtists, GENRE_FETCH_CONCURRENCY, async (artist) => {
+          try {
+            genreMap.set(artist, await getArtistGenre(artist));
+          } catch (_) {
+            genreMap.set(artist, { artist, genres: [], source: 'musicbrainz' });
+          }
+        }).then(() => true),
+        REFINE_TIMEOUT_MS,
+        false
+      )
+    : Promise.resolve(true);
+
+  const embeddingFetch = city.trim()
+    ? fetchEmbeddingMap(city, embeddingItems, REFINE_TIMEOUT_MS)
+    : Promise.resolve(new Map<string, number[]>());
+
+  const [, embeddingMap] = await Promise.all([genreFetch, embeddingFetch]);
+
+  const userGenreProfile = countsFromGenreMap(favoriteArtists, genreMap);
+  const genresByArtist = new Map<string, string[]>();
+  for (const [artist, info] of genreMap) {
+    genresByArtist.set(artist, info.genres || []);
+  }
+
+  let userEmbedding: number[] = [];
+  if (embeddingMap.size > 0) {
+    const favVecs = favorites
+      .map((s) => embeddingMap.get(showKey(s.artist, s.venue)))
+      .filter((v): v is number[] => Array.isArray(v) && v.length > 0);
+    userEmbedding = meanVector(favVecs);
+  }
+
+  const hasGenre = Object.keys(userGenreProfile).length > 0;
+  if (!hasGenre && userEmbedding.length === 0) return [];
+
+  return scoreRecommendationsFromProfile(events, favorites, profile, limit, {
+    userGenreProfile,
+    genresByArtist,
+    userEmbedding,
+    embeddingMap,
+  });
 }
 
 export function isRecommended(

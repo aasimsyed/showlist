@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { InteractionManager } from 'react-native';
 import { useEvents } from './useEvents';
 import { useFavorites } from '../context/FavoritesContext';
 import { useCity } from '../context/CityContext';
-import { getMLRecommendations, MLRecommendationScore, convertProfileToFeatures, convertShowToFeatures } from '../utils/mlRecommendationEngine';
-import { updateUserProfile, getUserProfile } from '../utils/userBehaviorTracker';
-import { mlService } from '../services/mlService';
+import {
+  getMLRecommendations,
+  refineRecommendations,
+  MLRecommendationScore,
+} from '../utils/mlRecommendationEngine';
+import { updateUserProfile } from '../utils/userBehaviorTracker';
 import {
   getCachedRecommendations,
   saveRecommendations,
@@ -19,10 +21,8 @@ export function useRecommendations(limit: number = 10) {
   const [recommendations, setRecommendations] = useState<MLRecommendationScore[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastFavoritesCount, setLastFavoritesCount] = useState(0);
-  const lastTrainingCount = useRef(0);
-  const trainingInProgress = useRef(false);
+  const requestId = useRef(0);
 
-  // Update user profile when favorites change
   useEffect(() => {
     if (favorites.length !== lastFavoritesCount) {
       setLastFavoritesCount(favorites.length);
@@ -32,44 +32,6 @@ export function useRecommendations(limit: number = 10) {
     }
   }, [favorites.length, lastFavoritesCount]);
 
-  // Train model when favorites change (if we have enough data). Defer to avoid blocking UI.
-  useEffect(() => {
-    let task: { cancel: () => void } | null = null;
-    const timeoutId = setTimeout(() => {
-      task = InteractionManager.runAfterInteractions(async () => {
-        if (
-          favorites.length >= 10 &&
-          Math.abs(favorites.length - lastTrainingCount.current) >= 3 &&
-          !trainingInProgress.current
-        ) {
-          trainingInProgress.current = true;
-          lastTrainingCount.current = favorites.length;
-          try {
-            const profile = await getUserProfile();
-            if (!profile) return;
-            const userFeatures = convertProfileToFeatures(profile);
-            const trainingData = favorites.map(fav => ({
-              userFeatures,
-              eventFeatures: convertShowToFeatures(fav),
-              label: 1,
-            }));
-            await mlService.trainModel(trainingData);
-          } catch (error) {
-            console.error('Error training model:', error);
-          } finally {
-            trainingInProgress.current = false;
-          }
-        }
-      });
-    }, 2000);
-
-    return () => {
-      clearTimeout(timeoutId);
-      if (task) task.cancel();
-    };
-  }, [favorites.length]);
-
-  // Load persisted recommendations on mount (filter out past-dated events)
   useEffect(() => {
     const loadCached = async () => {
       const cached = await getCachedRecommendations();
@@ -81,9 +43,10 @@ export function useRecommendations(limit: number = 10) {
     loadCached();
   }, []);
 
-  // Local favorite overlap only. Network/TF ranking was blocking this tab indefinitely.
   const calculateRecommendations = useCallback(async () => {
+    const id = ++requestId.current;
     if (events.length === 0 || favorites.length < 3) {
+      if (id !== requestId.current) return;
       setLoading(false);
       if (favorites.length < 3) setRecommendations([]);
       return;
@@ -92,13 +55,23 @@ export function useRecommendations(limit: number = 10) {
     setLoading(true);
     try {
       const recs = await getMLRecommendations(events, favorites, limit, city);
+      if (id !== requestId.current) return;
       setRecommendations(recs);
+      setLoading(false);
       saveRecommendations(recs).catch(() => {});
+
+      const refined = await refineRecommendations(events, favorites, limit, city);
+      if (id !== requestId.current) return;
+      if (refined.length > 0) {
+        setRecommendations(refined);
+        saveRecommendations(refined).catch(() => {});
+      }
     } catch (error) {
       console.error('Error calculating recommendations:', error);
+      if (id !== requestId.current) return;
       setRecommendations([]);
     } finally {
-      setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
   }, [events, favorites, limit, city]);
 

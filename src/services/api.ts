@@ -185,7 +185,8 @@ class ApiService {
    */
   async fetchEventDescriptionEmbeddings(
     city: string,
-    items: { artist: string; venue: string }[]
+    items: { artist: string; venue: string }[],
+    timeoutMs: number = 8000
   ): Promise<EventDescriptionEmbeddingsResponse> {
     if (!items.length) return { embeddings: [] };
     const payload = JSON.stringify({ city: city || '', items: items.slice(0, 30) });
@@ -195,7 +196,7 @@ class ApiService {
     const payloadParam = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     try {
       const url = `${API_ENDPOINTS.EVENT_DESCRIPTION_EMBEDDINGS}?payload=${encodeURIComponent(payloadParam)}`;
-      const response = await this.client.get<EventDescriptionEmbeddingsResponse>(url, { timeout: 60000 });
+      const response = await this.client.get<EventDescriptionEmbeddingsResponse>(url, { timeout: timeoutMs });
       const list = Array.isArray(response.data?.embeddings) ? response.data.embeddings : [];
       return { embeddings: list, _hint: response.data?._hint };
     } catch (error: any) {

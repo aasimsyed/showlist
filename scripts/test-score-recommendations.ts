@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { EventDay, Show } from '../src/types/index.ts';
 import type { UserProfile } from '../src/utils/userBehaviorTracker.ts';
-import { scoreRecommendationsFromProfile } from '../src/utils/scoreRecommendationsFromProfile.ts';
+import { scoreRecommendationsFromProfile, pickChronologicalArtists, pickEmbeddingTargets } from '../src/utils/scoreRecommendationsFromProfile.ts';
 
 function show(artist: string, venue: string, time: string | null = '20:00'): Show {
   return {
@@ -97,4 +97,78 @@ test('respects limit and is synchronous (returns immediately)', () => {
   const elapsed = Date.now() - started;
   assert.equal(recs.length, 5);
   assert.ok(elapsed < 50, `expected local scoring in <50ms, took ${elapsed}ms`);
+});
+
+test('genre overlap recommends a new artist the local ranker would skip', () => {
+  const events: EventDay[] = [
+    {
+      date: 'Tuesday, December 1st 2026',
+      shows: [
+        show('New Punk Band', 'Unknown Bar', '09:00'),
+        show('Smooth Jazz Trio', 'Unknown Bar', '09:00'),
+      ],
+    },
+  ];
+  const favorites = [
+    show('Saved Punk', 'Emo\'s', '20:00'),
+    show('A', 'X', '20:00'),
+    show('B', 'Y', '20:00'),
+  ];
+  const profile = profileFrom(favorites);
+  const local = scoreRecommendationsFromProfile(events, favorites, profile, 10);
+  assert.equal(local.length, 0);
+
+  const recs = scoreRecommendationsFromProfile(events, favorites, profile, 10, {
+    userGenreProfile: { punk: 2 },
+    genresByArtist: new Map([
+      ['New Punk Band', ['punk']],
+      ['Smooth Jazz Trio', ['jazz']],
+    ]),
+  });
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].show.artist, 'New Punk Band');
+  assert.ok(recs[0].explanation.reasons.some((r) => /punk/i.test(r)));
+});
+
+test('similar description embedding outranks an orthogonal one on the same day', () => {
+  const events: EventDay[] = [
+    {
+      date: 'Friday, August 21st 2026',
+      shows: [show('Similar Act', 'Room A'), show('Other Act', 'Room B')],
+    },
+  ];
+  const favorites = [
+    show('Saved Band', 'Emo\'s'),
+    show('A', 'X'),
+    show('B', 'Y'),
+  ];
+  const recs = scoreRecommendationsFromProfile(events, favorites, profileFrom(favorites), 10, {
+    userEmbedding: [1, 0],
+    embeddingMap: new Map([
+      ['Similar Act|Room A', [1, 0]],
+      ['Other Act|Room B', [0, 1]],
+    ]),
+  });
+  assert.equal(recs[0].show.artist, 'Similar Act');
+  assert.ok(recs[0].score > recs[1].score);
+});
+
+test('pickChronologicalArtists skips favorites and respects limit', () => {
+  const events: EventDay[] = [
+    { date: 'Friday, August 21st 2026', shows: [show('A', 'V1'), show('B', 'V1'), show('C', 'V1')] },
+    { date: 'Saturday, August 22nd 2026', shows: [show('D', 'V2')] },
+  ];
+  assert.deepEqual(pickChronologicalArtists(events, new Set(['A']), 2), ['B', 'C']);
+});
+
+test('pickEmbeddingTargets puts favorites ahead of listing order', () => {
+  const favorites = [show('Fav', 'Home')];
+  const events: EventDay[] = [
+    { date: 'Friday, August 21st 2026', shows: [show('Next', 'Club')] },
+  ];
+  const picked = pickEmbeddingTargets(favorites, events, 2);
+  assert.deepEqual(picked, [
+    { artist: 'Fav', venue: 'Home' },
+    { artist: 'Next', venue: 'Club' },
+  ]);
 });

@@ -20,6 +20,50 @@ interface CachedArtistGenre {
   cachedAt: number;
 }
 
+function toGenreInfo(cached: CachedArtistGenre): ArtistGenreInfo {
+  return {
+    artist: cached.artist,
+    genres: cached.genres || [],
+    source: cached.source || 'musicbrainz',
+    mood: cached.mood,
+    energy: cached.energy,
+    similarTo: cached.similarTo,
+  };
+}
+
+function parseCached(raw: string | null): CachedArtistGenre | null {
+  if (!raw) return null;
+  try {
+    const cached: CachedArtistGenre = JSON.parse(raw);
+    const age = Date.now() - (cached.cachedAt || 0);
+    if (age >= ARTIST_GENRE_CACHE_MAX_AGE_MS) return null;
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+/** Disk cache only: no network. Keys are the original artist names passed in. */
+export async function getCachedArtistGenreMap(
+  artists: string[]
+): Promise<Map<string, ArtistGenreInfo>> {
+  const unique = [...new Set(artists.filter((a) => a && a.trim()))];
+  const map = new Map<string, ArtistGenreInfo>();
+  if (!unique.length) return map;
+  try {
+    const pairs = await AsyncStorage.multiGet(
+      unique.map((a) => ARTIST_GENRE_CACHE_KEY_PREFIX + normalizeArtistName(a))
+    );
+    for (let i = 0; i < unique.length; i++) {
+      const cached = parseCached(pairs[i]?.[1] ?? null);
+      if (cached) map.set(unique[i], toGenreInfo(cached));
+    }
+  } catch (_) {
+    // ignore storage errors
+  }
+  return map;
+}
+
 /**
  * Get artist genre/mood/energy from backend with AsyncStorage cache (7-day TTL).
  * Uses MusicBrainz first, Gemini fallback on the backend.
@@ -27,21 +71,8 @@ interface CachedArtistGenre {
 export async function getArtistGenre(artistName: string): Promise<ArtistGenreInfo> {
   const key = ARTIST_GENRE_CACHE_KEY_PREFIX + normalizeArtistName(artistName);
   try {
-    const raw = await AsyncStorage.getItem(key);
-    if (raw) {
-      const cached: CachedArtistGenre = JSON.parse(raw);
-      const age = Date.now() - (cached.cachedAt || 0);
-      if (age < ARTIST_GENRE_CACHE_MAX_AGE_MS) {
-        return {
-          artist: cached.artist,
-          genres: cached.genres || [],
-          source: cached.source || 'musicbrainz',
-          mood: cached.mood,
-          energy: cached.energy,
-          similarTo: cached.similarTo,
-        };
-      }
-    }
+    const cached = parseCached(await AsyncStorage.getItem(key));
+    if (cached) return toGenreInfo(cached);
   } catch (_) {
     // ignore parse/storage errors
   }
